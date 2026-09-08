@@ -13,14 +13,15 @@
 - Build basic application shell and navigation.
 
 ## Phase 2 — Document Registry
-- Implement the document data model.
+- Implement the Supabase/PostgreSQL document registry data model.
 - Build the registry interface (table).
 - Implement search, filters, and sorting.
 - Build the document detail page.
+- Do not implement Google Drive, Google Sheets, file uploads, or registry synchronization in this phase.
 
 ## Phase 3 — Google Integration
 - Integrate Google Drive API for file uploads.
-- Integrate Google Sheets API for registry synchronization.
+- Evaluate and, only after explicit architectural approval, implement any Google Sheets integration or synchronization role. It must not create a competing registry source of truth.
 - Build the complete upload workflow (file + metadata).
 
 ## Phase 4 — User Management

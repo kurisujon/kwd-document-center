@@ -4,7 +4,7 @@
 Accepted
 
 ## Context
-We need a secure way to authenticate users via Google and store application-specific data (users, roles, permissions) without mixing this purely application-level state into the Google Sheets document registries.
+We need a secure way to authenticate users via Google and store application-specific data (users, roles, permissions, and the Phase 2 document registry) without mixing application state into KWD's existing Google Sheets trackers.
 
 ## Decision
 We will use Supabase for authentication and to store application users, roles, and permissions. We will **not** use Supabase Storage for the documents themselves (see ADR-001).

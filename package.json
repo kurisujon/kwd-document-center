@@ -9,7 +9,7 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "node --test tests/permissions.test.ts"
+    "test": "node --test tests/*.test.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.6",
