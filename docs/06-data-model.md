@@ -5,7 +5,7 @@ Entities listed here are **[PROPOSED]** unless otherwise marked. Final schemas d
 
 ## 2. Supabase Tables (PostgreSQL)
 
-### users [PROPOSED]
+### public.users [PROPOSED]
 Manages application access and authorization. Stored in Supabase.
 
 | Column | Type | Constraints | Description |
@@ -17,6 +17,8 @@ Manages application access and authorization. Stored in Supabase.
 | `status` | TEXT | NOT NULL, CHECK: ACTIVE/INACTIVE, default ACTIVE | Account status |
 | `created_at` | TIMESTAMPTZ | default now() | Record creation time |
 | `updated_at` | TIMESTAMPTZ | default now() | Last update time |
+
+**Pre-Phase-4 requirement:** Phase 1 sets `public.users.updated_at` on insertion only and implements no user updates. Before enabling user mutations, add and verify a database update trigger to maintain `updated_at` on every update. The trigger is intentionally deferred from Phase 1.
 
 ### upload_attempts [PROPOSED]
 Tracks upload operations for idempotency and orphan recovery. This is NOT a replacement for the document registry.

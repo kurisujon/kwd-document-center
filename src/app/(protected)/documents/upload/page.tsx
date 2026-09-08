@@ -1,0 +1,2 @@
+import { requireRole } from "@/lib/auth/server";
+export default async function UploadPage() { await requireRole("STAFF"); return <><header className="page-heading"><div><h1>Upload document</h1><p>Registering and storing documents will be available in Phase 3.</p></div></header><section className="placeholder"><h2>Upload is not available yet</h2><p>This protected destination is ready for the approved Google Drive and Google Sheets upload workflow. No files or metadata are collected in Phase 1.</p></section></>; }
