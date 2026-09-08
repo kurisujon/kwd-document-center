@@ -37,7 +37,7 @@ IMPORTANT: Google authentication proves identity. It does NOT automatically gran
 ## 4. Session Handling [PROPOSED]
 - Supabase manages JWT tokens with automatic refresh.
 - Session is stored in httpOnly cookies (recommended) or secure localStorage.
-- On every server request, validate the token. If missing, invalid, or expired, redirect to `/login?error=auth`.
+- On every server request, validate the token. A normal missing session redirects to `/login`; OAuth/session callback failures and genuine invalid/expired-session handling redirect to `/login?error=auth`.
 - When a user's status is changed to INACTIVE in the `public.users` table, their next request will be denied. Existing sessions are invalidated on next server check.
 
 Phase 1 login error states distinguish session failure (`/login?error=auth`), an authenticated identity absent from `public.users` (`/login?error=unauthorized`), and an INACTIVE account (`/login?error=inactive`, account deactivated). Post-login redirects default to `/documents`; a `next` destination must be a safe single-root application path. External and protocol-relative destinations, including paths that normalize to protocol-relative destinations, fall back to `/documents`.
