@@ -7,7 +7,7 @@ User clicks "Continue with Google"
     → Supabase Auth (Google OAuth provider)
     → Google authenticates identity
     → Supabase creates/updates auth.users entry
-    → Application checks app_users table for matching email
+    → Application checks public.users table for matching email
     → If found AND status = ACTIVE: grant access with assigned role
     → If found AND status = INACTIVE: deny access ("Account deactivated")
     → If not found: deny access ("You are not authorized to use this application")
@@ -18,14 +18,14 @@ IMPORTANT: Google authentication proves identity. It does NOT automatically gran
 ## 2. Google Account Considerations [CONFIRMED]
 - Users may use personal Gmail accounts (not a Google Workspace domain).
 - Do NOT assume domain-based filtering (e.g., `@kiblawanwd.gov.ph`).
-- Authorization is managed entirely through the Supabase users table.
+- Authorization is managed entirely through the `public.users` table.
 
 ## 3. Role Enforcement [PROPOSED]
 
 ### Server-Side (Mandatory)
 - Every API route / Server Action must:
   1. Verify the Supabase session token
-  2. Look up the user in the app_users table
+  2. Look up the user in the public.users table
   3. Check role and status
   4. Reject if unauthorized
 - NEVER trust client-provided role claims.
@@ -37,11 +37,13 @@ IMPORTANT: Google authentication proves identity. It does NOT automatically gran
 ## 4. Session Handling [PROPOSED]
 - Supabase manages JWT tokens with automatic refresh.
 - Session is stored in httpOnly cookies (recommended) or secure localStorage.
-- On every server request, validate the token. If invalid/expired, redirect to login.
-- When a user's status is changed to INACTIVE in the users table, their next request will be denied. Existing sessions are invalidated on next server check.
+- On every server request, validate the token. If missing, invalid, or expired, redirect to `/login?error=auth`.
+- When a user's status is changed to INACTIVE in the `public.users` table, their next request will be denied. Existing sessions are invalidated on next server check.
+
+Phase 1 login error states distinguish session failure (`/login?error=auth`), an authenticated identity absent from `public.users` (`/login?error=unauthorized`), and an INACTIVE account (`/login?error=inactive`, account deactivated). Post-login redirects default to `/documents`; a `next` destination must be a safe single-root application path. External and protocol-relative destinations, including paths that normalize to protocol-relative destinations, fall back to `/documents`.
 
 ## 5. Account Lifecycle [PROPOSED]
-- **New user**: Admin adds email + name + role to users table. User can then sign in.
+- **New user**: Admin adds email + name + role to the `public.users` table. User can then sign in.
 - **Deactivation**: Admin sets status to INACTIVE. User is denied on next request.
 - **Revoked Google access**: If a user deletes their Google account or changes email, their Supabase auth session will fail. The application handles this gracefully.
 - **Staff departure**: Admin deactivates the account. No need to revoke Google OAuth credentials specifically.

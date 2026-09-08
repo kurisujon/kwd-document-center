@@ -39,6 +39,8 @@ Do not scatter raw HEX values. Use semantic tokens to allow centralized changes.
 --color-brand: #0047AB; /* Cobalt */
 ```
 
+**Phase 1 temporary treatment [ASSUMPTION]:** Until the Milky White HEX is approved, `--color-background` references the existing `--color-surface-muted` neutral token. This centralized fallback can be replaced when approval is recorded; it is not an official KWD Milky White value.
+
 ## 6. Typography
 - **Typeface:** Clean modern sans-serif (e.g., Inter, Roboto, or standard system fonts). Prioritize readability. Avoid overly stylized display fonts.
 - **Hierarchy:**

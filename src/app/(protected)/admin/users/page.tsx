@@ -1,0 +1,2 @@
+import { requireRole } from "@/lib/auth/server";
+export default async function UsersPage() { await requireRole("ADMIN"); return <><header className="page-heading"><div><h1>Users</h1><p>Authorized-user administration is planned for Phase 4.</p></div></header><section className="placeholder"><h2>Administration foundation is secured</h2><p>Only authorized administrators can reach this route. User management actions have not been implemented in Phase 1.</p></section></>; }

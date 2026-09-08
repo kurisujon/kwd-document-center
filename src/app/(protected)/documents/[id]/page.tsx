@@ -1,0 +1,2 @@
+import Link from "next/link";
+export default function DocumentDetailPage() { return <><header className="page-heading"><div><h1>Document detail</h1><p>Document details will be connected to the registry in Phase 2.</p></div></header><section className="placeholder"><h2>Document unavailable</h2><p>This page is reserved for the approved document metadata and Google Drive access flow.</p><Link className="button button-secondary" href="/documents">Back to documents</Link></section></>; }
