@@ -35,7 +35,7 @@ Initial categories (requires review against existing trackers):
 - What folder structure should be used? (e.g., separated by type, year, or department?)
 - What naming convention should be used?
 
-### Google Sheets (Registry)
+### Existing Google Sheets Trackers / Future Integration
 - Which trackers currently exist?
 - Which columns does each tracker contain, and which are mandatory?
 - Should existing trackers be consolidated?

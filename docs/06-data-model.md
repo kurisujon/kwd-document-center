@@ -20,7 +20,7 @@ Manages application access and authorization. Stored in Supabase.
 
 **Pre-Phase-4 requirement:** Phase 1 sets `public.users.updated_at` on insertion only and implements no user updates. Before enabling user mutations, add and verify a database update trigger to maintain `updated_at` on every update. The trigger is intentionally deferred from Phase 1.
 
-### upload_attempts [PROPOSED]
+### upload_attempts [PROPOSED, PHASE 3]
 Tracks upload operations for idempotency and orphan recovery. This is NOT a replacement for the document registry.
 
 | Column | Type | Constraints | Description |
@@ -49,52 +49,51 @@ Only implement if KWD confirms the need.
 | `details` | JSONB | nullable | Additional context |
 | `created_at` | TIMESTAMPTZ | default now() | When the action occurred |
 
-## 3. Google Sheets Registry (Document Entity) [PROPOSED]
+## 3. Phase 2 Supabase/PostgreSQL Document Registry [PROPOSED]
 
-A single unified Google Sheet with one row per document. The application reads/writes this sheet through the Registry Service.
+Supabase/PostgreSQL is the application's document metadata registry for Phase 2. The registry supports document search, filtering, sorting, pagination, and detail retrieval. The model uses only fields already described in the project documentation; final field requirements remain subject to the classifications below.
 
-| Column | Type (all stored as text in Sheets) | Description |
-|---|---|---|
-| `document_id` | TEXT (UUID) | Application-generated unique identifier |
-| `document_type` | TEXT | e.g., Memorandum, Board Resolution |
-| `document_number` | TEXT | Official document number (may be empty) |
-| `document_date` | DATE (ISO 8601) | Official date of the document |
-| `subject` | TEXT | Brief description or subject line |
-| `persons_involved` | TEXT | Comma-separated names or relevant parties |
-| `drive_file_id` | TEXT | Google Drive file ID |
-| `drive_url` | TEXT | Constructed from file ID |
-| `file_name` | TEXT | Original uploaded file name |
-| `file_type` | TEXT | MIME type (e.g., application/pdf) |
-| `status` | TEXT | ACTIVE or ARCHIVED (default ACTIVE) |
-| `created_by` | TEXT | Email of the uploader |
-| `created_at` | TEXT (ISO 8601) | Upload timestamp |
-| `updated_at` | TEXT (ISO 8601) | Last modification timestamp |
+| Column | Type | Constraints / status | Description |
+|---|---|---|---|
+| `document_id` | UUID | Primary key; **PROPOSED** | Application-generated unique identifier |
+| `document_type` | TEXT | Required validation **CONFIRMED**; category list **PROPOSED** | Document category |
+| `document_number` | TEXT | May be empty; **PROPOSED** | Official document number |
+| `document_date` | DATE | Required validation **CONFIRMED** | Official date of the document |
+| `subject` | TEXT | Required validation **CONFIRMED** | Brief description or subject line |
+| `persons_involved` | TEXT | **PROPOSED** | Names or relevant parties |
+| `drive_file_id` | TEXT | Nullable; Phase 3 | Google Drive file ID when Drive integration exists |
+| `drive_url` | TEXT | Nullable; Phase 3 | Drive URL constructed from the file ID |
+| `file_name` | TEXT | Nullable until Phase 3; **PROPOSED** | Original uploaded file name |
+| `file_type` | TEXT | Nullable until Phase 3; **PROPOSED** | File MIME type |
+| `status` | TEXT | `ACTIVE`/`ARCHIVED`; **PROPOSED** | Registry record status |
+| `created_by` | TEXT | Nullable; **PENDING CONFIRMATION** for the final identifier convention | User or email associated with record creation; Phase 2 retains the already documented uploader-email representation |
+| `created_at` | TIMESTAMPTZ | **PROPOSED** | Record creation timestamp |
+| `updated_at` | TIMESTAMPTZ | **PROPOSED** | Last modification timestamp |
 
-**Note:** Google Sheets stores everything as text. The application must handle type parsing and validation.
+Drive-related fields are retained for Phase 3 extensibility but are not populated through Google APIs in Phase 2.
 
-## 4. Responsibility Separation [CONFIRMED]
+## 4. Google Sheets Registry [PHASE 3, DEFERRED]
+
+Any future Google Sheets role, including synchronization or migration, requires an explicit architectural decision. It must not become a competing source of truth for the document registry without that decision.
+
+## 5. Responsibility Separation [CONFIRMED]
 
 | System | Owns | Does NOT Own |
 |---|---|---|
-| Supabase | Users, roles, upload tracking, audit log | Document metadata, files |
-| Google Sheets | Document registry (metadata) | Files, users |
-| Google Drive | Actual document files | Metadata, users |
+| Supabase/PostgreSQL | Users, roles, Phase 2 document registry, upload tracking when implemented, audit log if approved | Actual document files |
+| Google Sheets | No Phase 2 responsibility; future role requires explicit decision | Phase 2 registry, files, users |
+| Google Drive | Actual document files beginning in Phase 3 | Phase 2 registry, users |
 
 These three systems must NOT duplicate each other's responsibilities.
 
-## 5. Design Guidelines [CONFIRMED]
+## 6. Design Guidelines [CONFIRMED]
 
 - Do not create unnecessary entities. Keep the model flat and simple for MVP.
 - A single, unified Document Registry is strongly recommended over multiple fragmented tracker schemas.
 - Do not prematurely normalize the database.
 
-## 6. Migration Threshold [PROPOSED]
+## 7. Future Registry Decisions [PROPOSED]
 
-Migrate the document registry from Google Sheets to Supabase PostgreSQL if **any** of these conditions occur:
+Any future migration, synchronization, or secondary registry involving Google Sheets must be approved explicitly. The Phase 2 application registry is already Supabase/PostgreSQL; no competing source of truth is introduced by this phase.
 
-- Registry exceeds ~2,000 rows and search performance becomes noticeably slow
-- Concurrent editing conflicts become frequent
-- Complex queries (multi-field filtering with date ranges, joins) are needed
-- Google Sheets API rate limits are regularly hit (300 req/min/project)
-
-The Registry Service abstraction makes this migration straightforward — only the service implementation changes, not the rest of the application.
+Potential future decision factors include existing tracker migration, synchronization requirements, staff access to raw Sheets, registry ownership, performance, and maintenance cost.

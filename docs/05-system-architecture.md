@@ -13,51 +13,58 @@ The application acts as a controlled, secure interface between KWD staff and KWD
     │        Server Actions /          │
     │        Route Handlers            │
     ↓                                  ↓
- Supabase                        Google APIs
+ Supabase/PostgreSQL              Google APIs [PHASE 3]
     │                                  │
     ├── Authentication                 ├── Google Drive (File Storage)
     ├── Users Table                    │
-    ├── Roles                          └── Google Sheets (Document Registry)
-    ├── Upload Tracking
+    ├── Roles                          └── Google Sheets [DEFERRED]
+    ├── Document Registry
+    ├── Upload Tracking [PHASE 3]
     └── Audit Logs [PENDING CONFIRMATION]
 ```
 
 ## 2. Core Component Responsibilities [CONFIRMED]
 
 - **Google Drive:** Actual document file storage. Do NOT use Supabase Storage.
-- **Google Sheets:** Initial document registry / metadata store.
-- **Supabase:** Authentication, authorized users, roles, upload tracking, audit (if approved).
+- **Google Sheets:** Not implemented in Phase 2. Any future synchronization role requires an explicit architectural decision and must not create a competing registry source of truth.
+- **Supabase/PostgreSQL:** Authentication, authorized users, roles, and the Phase 2 application document registry. Future audit-related metadata remains subject to approval.
 - **Vercel:** Application hosting and deployment.
 - **GitHub:** Source control.
 
 ## 3. Server-Side Service Boundary [PROPOSED]
 
-All Google API interactions are isolated behind a service layer. The UI never calls Google APIs directly.
+All future Google API interactions are isolated behind a service layer. The UI never calls Google APIs directly. Phase 2 registry operations use a server-side Supabase/PostgreSQL document registry service.
 
 ```mermaid
 graph LR
     Client["Client (Browser)"] -->|"Fetch / Form Submit"| SA["Server Actions / Route Handlers"]
     SA -->|"Verify Session"| Auth["Auth Service (Supabase)"]
     SA -->|"Orchestrate"| DocSvc["Document Service"]
-    DocSvc -->|"Upload / Retrieve Files"| DriveSvc["Drive Service (Google Drive API)"]
-    DocSvc -->|"Read / Write Metadata"| RegSvc["Registry Service (Google Sheets API)"]
-    DocSvc -->|"Track Uploads"| DB["Supabase (upload_attempts)"]
+    DocSvc -->|"Read / Write Registry"| RegSvc["Registry Service (Supabase/PostgreSQL)"]
+    DocSvc -.->|"Phase 3: Upload / Retrieve Files"| DriveSvc["Drive Service (Google Drive API)"]
+    DocSvc -.->|"Phase 3: Explicitly approved role only"| SheetsSvc["Google Sheets Service"]
+    DocSvc -.->|"Phase 3: Track Uploads"| DB["Supabase (upload_attempts)"]
 ```
 
-### Drive Service
+### Phase 2 Registry Service
+- Read document metadata from the Supabase/PostgreSQL registry
+- Search, filter, sort, and paginate document records
+- Retrieve a single document record
+- Update or archive records only when the relevant requirements are approved
+
+### Drive Service [PHASE 3]
 - Upload file to the correct Drive folder based on document type
 - Retrieve file metadata from Drive
 - Construct Drive view/download URLs
 - Handle Drive API errors
 
-### Registry Service
-- Append new document rows to Google Sheets
-- Read/search document rows
-- Update document rows
-- Archive (soft-delete) document rows
-- Handle Sheets API errors
+### Google Sheets Service [PHASE 3, DEFERRED]
+- No Phase 2 implementation
+- Any future read/write or synchronization behavior requires an explicit architectural decision
+- Must not create a competing document registry source of truth
 
-### Document Service
+### Document Service [PHASE 2 / PHASE 3 EXTENSION]
+- Coordinate Phase 2 registry reads through Supabase/PostgreSQL
 - Orchestrate the upload flow (Drive upload → Registry write)
 - Handle idempotency (check upload_attempts table)
 - Handle failure recovery
@@ -79,7 +86,7 @@ All Google API operations use a Google Cloud service account — NOT per-user OA
 
 ## 5. Upload Consistency [PROPOSED]
 
-The upload follows a strict ordered two-phase process:
+The upload follows a strict ordered two-phase process in Phase 3. It is not part of the Phase 2 registry implementation:
 
 ```mermaid
 sequenceDiagram
@@ -139,7 +146,7 @@ For a small team MVP, the following strategies are acceptable:
 
 | Scenario | Strategy | Justification |
 |---|---|---|
-| Two users uploading simultaneously | Safe by default | Drive handles parallel uploads; Sheets appends rows atomically |
+| Two users uploading simultaneously | Phase 3 concern | Upload concurrency depends on the approved Drive/registry integration design |
 | Two users editing the same metadata | Last-write-wins | Small team; concurrent edits on the same document are rare |
 | Duplicate document numbers | Client-side warning, no hard constraint | Numbering schemes vary by document type |
 

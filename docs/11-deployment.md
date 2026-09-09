@@ -5,7 +5,8 @@
 - **Framework**: Next.js (App Router)
 - **Auth & App Data**: Supabase (cloud-hosted)
 - **File Storage**: Google Drive (via Google Cloud service account)
-- **Document Registry**: Google Sheets (via Google Cloud service account)
+- **Phase 2 Document Registry**: Supabase/PostgreSQL
+- **Phase 3 Google Sheets Integration**: Deferred; any synchronization role requires explicit architectural approval
 
 ## 2. Vercel Considerations [PROPOSED]
 
@@ -74,7 +75,7 @@ All environment variables must be configured in the Vercel dashboard.
 ## 6. Cost Estimate [PROPOSED]
 - **Vercel Hobby**: Free (sufficient for small internal app)
 - **Vercel Pro**: $20/month (if needed for larger payloads or execution time)
-- **Supabase Free**: Sufficient for auth + small user table + upload tracking
+- **Supabase Free**: Sufficient for auth + small user table + Phase 2 document registry + upload tracking
 - **Google Drive**: Free (uses existing KWD storage)
 - **Google Sheets API**: Free (within standard quotas: 300 requests/min/project)
 - **Estimated total**: $0-20/month

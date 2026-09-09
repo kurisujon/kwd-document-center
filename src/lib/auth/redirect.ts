@@ -1,5 +1,12 @@
 const applicationOrigin = "https://kwd-document-center.invalid";
 
+export const authenticationFailureRedirectPath = "/login?error=auth";
+
+export function getAuthorizationRedirectPath(kind: "unauthenticated" | "not-authorized" | "inactive"): string {
+  if (kind === "unauthenticated") return "/login";
+  return kind === "inactive" ? "/login?error=inactive" : "/login?error=unauthorized";
+}
+
 /**
  * Returns a safe, single-root application path for post-authentication redirects.
  * External, protocol-relative, and malformed paths fall back to Documents.

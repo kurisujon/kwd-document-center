@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { hasMinimumRole } from "./permissions";
+import { getAuthorizationRedirectPath } from "./redirect";
 import type { AuthorizationResult, AuthorizedUser, Role } from "./types";
 
 export async function getAuthorization(): Promise<AuthorizationResult> {
@@ -26,8 +27,7 @@ export async function requireAuthorizedUser(): Promise<AuthorizedUser> {
   if (!isSupabaseConfigured()) return redirect("/login?error=configuration");
   const authorization = await getAuthorization();
   if (authorization.kind === "authorized") return authorization.user;
-  if (authorization.kind === "unauthenticated") return redirect("/login?error=auth");
-  return redirect(authorization.kind === "inactive" ? "/login?error=inactive" : "/login?error=unauthorized");
+  return redirect(getAuthorizationRedirectPath(authorization.kind));
 }
 
 export async function requireRole(minimumRole: Role): Promise<AuthorizedUser> {

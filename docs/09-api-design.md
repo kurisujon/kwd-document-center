@@ -18,27 +18,32 @@ Document Service (orchestration)
         ├────────────────────────────────────┐
         │                                    │
         ▼                                    ▼
-Drive Service                        Registry Service
-(Google Drive API)                   (Google Sheets API)
+Document Registry Service             Drive Service [PHASE 3]
+(Supabase/PostgreSQL)                 (Google Drive API)
 ```
 
-### Drive Service
+### Document Registry Service [PHASE 2]
+- Read document records from Supabase/PostgreSQL
+- Search, filter, sort, and paginate document records
+- Retrieve document detail metadata
+- Apply server-side authorization and validation boundaries
+
+### Drive Service [PHASE 3]
 Responsibilities:
 - Upload file to Google Drive (to the correct folder based on document type)
 - Retrieve file metadata from Drive
 - Construct Drive view/download URLs
 - Handle Drive API errors
 
-### Registry Service
+### Google Sheets Service [PHASE 3, DEFERRED]
 Responsibilities:
-- Append a new document row to Google Sheets
-- Read/search document rows from Google Sheets
-- Update a document row in Google Sheets
-- Archive (soft-delete) a document row
-- Handle Sheets API errors
+- No Phase 2 implementation
+- Any future Sheets read/write or synchronization behavior requires explicit architectural approval
+- Must not create a competing registry source of truth
 
-### Document Service
+### Document Service [PHASE 2 / PHASE 3 EXTENSION]
 Responsibilities:
+- Coordinate Phase 2 document registry operations through Supabase/PostgreSQL
 - Orchestrate the upload flow (Drive upload → Registry write)
 - Handle idempotency (check upload_attempts)
 - Handle failure recovery
@@ -68,7 +73,7 @@ Responsibilities:
 | Add user | POST /api/users | Authorize a new user | Yes | ADMIN |
 | Update user | PATCH /api/users/:id | Update role/status | Yes | ADMIN |
 
-### Upload Flow (Detailed)
+### Upload Flow (Detailed) [PHASE 3]
 ```
 POST /api/documents
   Body: { file, metadata, idempotency_key }
@@ -116,7 +121,7 @@ Error codes:
 - FORBIDDEN — insufficient role
 - NOT_FOUND — document/user not found
 - DRIVE_ERROR — Google Drive operation failed
-- REGISTRY_ERROR — Google Sheets operation failed
+- REGISTRY_ERROR — Supabase/PostgreSQL registry operation failed
 - UPLOAD_FAILED — upload could not complete
 - INTERNAL_ERROR — unexpected server error
 
@@ -128,4 +133,4 @@ The Documents list endpoint supports:
 - `page` / `pageSize` — pagination (default page size: 25)
 - `sortBy` / `sortOrder` — sorting (default: created_at DESC)
 
-For Google Sheets: The application reads all rows (or a cached subset) and performs filtering/sorting in the application layer. This is acceptable for < 2,000 documents.
+For Phase 2, Supabase/PostgreSQL performs the registry queries, filtering, sorting, and pagination. Google Sheets is not queried or synchronized in Phase 2.

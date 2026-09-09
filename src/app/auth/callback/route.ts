@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { getSafeRedirectPath } from "@/lib/auth/redirect";
+import { authenticationFailureRedirectPath, getSafeRedirectPath } from "@/lib/auth/redirect";
 import { isSupabaseConfigured, getSupabaseEnv } from "@/lib/supabase/env";
 
 export async function GET(request: NextRequest) {
@@ -19,8 +19,8 @@ export async function GET(request: NextRequest) {
     },
   });
   const code = url.searchParams.get("code");
-  if (!code) return NextResponse.redirect(new URL("/login?error=auth", url.origin));
+  if (!code) return NextResponse.redirect(new URL(authenticationFailureRedirectPath, url.origin));
   const { error } = await supabase.auth.exchangeCodeForSession(code);
-  if (error) return NextResponse.redirect(new URL("/login?error=auth", url.origin));
+  if (error) return NextResponse.redirect(new URL(authenticationFailureRedirectPath, url.origin));
   return response;
 }

@@ -81,14 +81,14 @@ Use the existing approved architecture. Do not introduce additional infrastructu
         ↓
     ┌───────────────┬─────────────────┐
     ↓               ↓                 ↓
-    Supabase    Google Drive     Google Sheets
+    Supabase    Google Drive     Google Sheets [Deferred]
 ```
 
 **Responsibilities:**
 - **Next.js**: Application layer and server-side API boundary.
-- **Supabase**: Authentication, authorized users, roles, permissions, and application data where approved.
-- **Google Drive**: Actual document file storage.
-- **Google Sheets**: Initial document registry / metadata storage.
+- **Supabase/PostgreSQL**: Authentication, authorized users, roles, permissions, and the Phase 2 application document registry/metadata source of truth.
+- **Google Drive**: Actual document file storage; integration begins in Phase 3.
+- **Google Sheets**: Not used as the Phase 2 registry. Any future integration or synchronization requires a separate architectural decision and must not create a competing source of truth.
 - **Vercel**: Application hosting.
 
 ---
@@ -108,10 +108,10 @@ Google API credentials MUST remain server-side.
 ---
 
 ## 8. Google Sheets Rules
-Google Sheets is the initial document registry.
-Do not automatically replace it with PostgreSQL.
+Google Sheets is not used as the Phase 2 application registry. Its future role, including any integration or synchronization, requires a separate architectural decision.
+Do not create competing registry sources of truth without that decision.
 Do not introduce Elasticsearch or another search engine for MVP.
-If the registry eventually needs to migrate to PostgreSQL, document the reason and architecture change first.
+If the registry architecture needs to change in the future, document the reason and architectural decision first.
 
 ---
 
