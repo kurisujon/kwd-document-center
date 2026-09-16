@@ -56,13 +56,14 @@ Phase 1 login error states distinguish session failure (`/login?error=auth`), an
 
 ### Server-Only (Never expose to client)
 - `SUPABASE_SERVICE_ROLE_KEY` — bypasses RLS, used for admin operations
-- `GOOGLE_SERVICE_ACCOUNT_EMAIL` — service account email
-- `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY` — service account private key (JSON key)
-- `GOOGLE_DRIVE_ROOT_FOLDER_ID` — root folder for uploads
-- `GOOGLE_SHEET_ID` — registry spreadsheet ID
-- `GOOGLE_SHEET_NAME` — specific sheet/tab name within the spreadsheet
+- `GOOGLE_DRIVE_CLIENT_ID` — dedicated Drive Storage OAuth client ID
+- `GOOGLE_DRIVE_CLIENT_SECRET` — dedicated Drive Storage OAuth client secret
+- `GOOGLE_DRIVE_REFRESH_TOKEN` — refresh token for the KWD official storage account
+- `GOOGLE_DRIVE_ROOT_FOLDER_ID` — configured KWD Drive root folder ID
+- `GOOGLE_DRIVE_ADMIN_FOLDER_MAP` — exact Phase 3 Admin logical-destination-to-folder-ID mapping
+- `ADMIN_UPLOAD_MAX_BYTES` — optional explicit upload limit; defaults to 4 MiB
 
-IMPORTANT: `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are only needed if using OAuth for user-delegated access. With a service account strategy, they are not required for Drive/Sheets operations. However, they ARE required for configuring Google as an OAuth provider in Supabase.
+The existing Supabase Google authentication client remains unchanged. Its credentials and redirect URI are managed by Supabase and are separate from the Drive Storage OAuth client.
 
 ## 7. Security Principles [CONFIRMED]
 - Never expose secrets in frontend code.
@@ -76,15 +77,17 @@ IMPORTANT: `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are only needed if usin
 
 ## 8. Upload Validation [PROPOSED]
 - **File types**: PDF, DOCX, DOC, XLSX, XLS, PNG, JPG (configurable allowlist)
-- **File size**: Maximum 25 MB (Vercel payload limit consideration; adjustable)
+- **File size**: Maximum 4 MiB by default to remain below the documented Vercel request limit; adjustable through `ADMIN_UPLOAD_MAX_BYTES` only when the deployment supports it
 - **Metadata**: Validate required fields with Zod schemas server-side
 - **File name**: Sanitize to remove special characters before Drive upload
 
-## 9. Google API Credentials [PROPOSED]
-- Use a Google Cloud service account, NOT individual user OAuth for Drive/Sheets.
-- Service account key stored as environment variable (JSON private key).
-- Service account granted Editor access to target Drive folder and Sheet.
-- In production, use Vercel environment variables. Do NOT commit credentials to source control.
+## 9. Google Drive OAuth Credentials [CONFIRMED PHASE 3]
+- Use the dedicated `KWD Document Center - Drive Storage` OAuth client.
+- Authorize the KWD official account `kiblawanwaterdistrict@gmail.com` with the approved `drive.file` scope.
+- Use the separate Admin-only setup callback to obtain a refresh token.
+- Store the refresh token in Vercel as `GOOGLE_DRIVE_REFRESH_TOKEN`.
+- Keep the client secret, refresh token, authorization code, and access token server-side and out of logs.
+- The callback displays the refresh token only in the one-time Admin setup response so the administrator can configure Vercel. It is not saved in application storage or normal browser state.
 
 ## 10. Audit Logging [PENDING CONFIRMATION]
 Do not build a complex audit system unless KWD confirms the need.

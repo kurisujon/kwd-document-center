@@ -35,11 +35,8 @@ Responsibilities:
 - Construct Drive view/download URLs
 - Handle Drive API errors
 
-### Google Sheets Service [PHASE 3, DEFERRED]
-Responsibilities:
-- No Phase 2 implementation
-- Any future Sheets read/write or synchronization behavior requires explicit architectural approval
-- Must not create a competing registry source of truth
+### Google Sheets Service [OUT OF SCOPE]
+No Google Sheets service is implemented. Supabase/PostgreSQL remains the sole application metadata registry.
 
 ### Document Service [PHASE 2 / PHASE 3 EXTENSION]
 Responsibilities:
@@ -63,8 +60,8 @@ Responsibilities:
 | List/Search documents | GET /api/documents | Search registry with filters | Yes | VIEWER |
 | Get document detail | GET /api/documents/:id | Get single document metadata | Yes | VIEWER |
 | Upload document | POST /api/documents | Upload file + create registry entry | Yes | STAFF |
-| Update metadata | PATCH /api/documents/:id | Edit document metadata | Yes | STAFF |
-| Archive document | DELETE /api/documents/:id | Soft-delete / archive | Yes | ADMIN |
+| Open file | GET /api/documents/:id/open | Validate Drive availability and redirect | Yes | VIEWER |
+| Download file | GET /api/documents/:id/download | Stream through the server | Yes | VIEWER |
 
 ### Users (Admin Only)
 | Operation | Method | Purpose | Auth Required | Min Role |
@@ -73,33 +70,42 @@ Responsibilities:
 | Add user | POST /api/users | Authorize a new user | Yes | ADMIN |
 | Update user | PATCH /api/users/:id | Update role/status | Yes | ADMIN |
 
+### Drive OAuth Setup (Admin Only)
+| Operation | Method | Purpose | Auth Required | Min Role |
+|---|---|---|---|---|
+| Start Drive setup | GET /api/admin/drive-setup/authorize | Start the one-time Drive Storage OAuth flow | Yes | ADMIN |
+| Complete Drive setup | GET /api/admin/drive-setup/callback | Validate state and exchange the code for a refresh token | Yes | ADMIN |
+
+The Drive setup callback is separate from `/auth/callback`, which exchanges the Supabase Google login code. The refresh token is displayed only in the one-time administrator setup response for manual Vercel configuration.
+
 ### Upload Flow (Detailed) [PHASE 3]
 ```
 POST /api/documents
   Body: { file, metadata, idempotency_key }
 
-  1. Validate session → 403 if unauthorized
+  1. Validate session → 401 if unauthenticated; 403 if unauthorized
   2. Validate role >= STAFF → 403 if insufficient
   3. Validate metadata (Zod) → 400 if invalid
   4. Validate file (type, size) → 400 if invalid
   5. Check idempotency_key in upload_attempts
      - If COMPLETE: return existing document
      - If PENDING_REGISTRY: skip to step 8
-  6. Create upload_attempts record (status: UPLOADING)
-  7. Upload file to Drive → get fileId
-     - On failure: update upload_attempts (FAILED), return 500
-  8. Update upload_attempts (status: PENDING_REGISTRY, drive_file_id: fileId)
-  9. Write metadata row to Google Sheets
-     - On failure: retry up to 3 times
-     - If still failing: keep status as PENDING_REGISTRY, return 500 with message
-  10. Update upload_attempts (status: COMPLETE)
-  11. Return 201 with document data
+  6. Create or find upload_attempts record (status: PENDING_UPLOAD)
+     - Atomically claim Drive ID reservation lease (sets operation_token and reservation_expires_at)
+     - Only the reservation winner calls generateFileId()
+     - Persist the Drive file ID and transition attempt to UPLOADING
+  7. Resumable upload file to Drive using that exact persisted file ID
+     - On failure: conditionally mark attempt as FAILED using current operation_token, return 500/503
+  8. Update upload_attempts (status: PENDING_REGISTRY with matching operation_token; persisted drive_file_id remains unchanged)
+  9. Transactionally insert the Supabase document and link the attempt
+     - On failure: keep status as PENDING_REGISTRY and retry with the same key
+  10. Return 201 with document data
 ```
 
 ## 4. Input Validation [CONFIRMED]
 - All inputs validated with Zod schemas on the server.
 - File type validated against allowlist.
-- File size validated against maximum (25 MB default).
+- File size validated against the 4 MiB deployment-safe default or explicit `ADMIN_UPLOAD_MAX_BYTES` value.
 - Metadata fields validated: document_type (required, from enum), document_date (required, valid date), subject (required, non-empty).
 - Document number format validation depends on document type.
 
@@ -127,7 +133,7 @@ Error codes:
 
 ## 6. Search and Filtering [PROPOSED]
 The Documents list endpoint supports:
-- `q` — full-text search across subject, document_number, persons_involved
+- `q` — full-text search across subject, document_number, persons_involved, file_name, and filing_subcategory
 - `type` — filter by document_type
 - `dateFrom` / `dateTo` — date range filter
 - `page` / `pageSize` — pagination (default page size: 25)

@@ -2,33 +2,33 @@
 
 ## 1. Configurable Folder Mapping [CONFIRMED]
 
-The application must NOT hard-code a folder hierarchy. Instead, it must use a configurable mapping:
+The application must NOT discover folders by name or hard-code folder IDs. Phase 3 Admin uses a configurable logical destination mapping:
 
 ```
-DOCUMENT_TYPE → DRIVE_FOLDER_ID
+ADMIN + optional YEAR + CATEGORY + optional SUBCATEGORY → DRIVE_FOLDER_ID
 ```
 
-Example configuration (stored as environment variables):
+Example logical keys in `GOOGLE_DRIVE_ADMIN_FOLDER_MAP`:
 
 ```
-DRIVE_FOLDER_MEMORANDUM=1abc123def456
-DRIVE_FOLDER_BOARD_RESOLUTION=2abc123def456
-DRIVE_FOLDER_BAC_RESOLUTION=3abc123def456
-DRIVE_FOLDER_OFFICE_ORDER=4abc123def456
-DRIVE_FOLDER_OTHER=5abc123def456
+ADMIN|2026|BACTI TEST
+ADMIN|2026|BAC|AGENDAS
+ADMIN|2026|ATTENDANCE|DTR SUMMARY
+ADMIN|REFERENCE & TEMPLATES
 ```
 
 This allows KWD to reorganize Drive folders without code changes.
 
 **Future:** If the number of document types grows, consider moving this mapping to a Supabase configuration table with an admin UI.
 
-## 2. Service Account Strategy [PROPOSED]
+## 2. KWD Official Account OAuth Strategy [CONFIRMED PHASE 3]
 
-A Google Cloud service account performs all Drive operations on behalf of the application.
+The application performs Drive operations through OAuth credentials delegated to the KWD official account `kiblawanwaterdistrict@gmail.com`.
 
-- The service account must be granted **Editor** access to the target Drive folder(s).
-- **Shared Drive (recommended):** If KWD has Google Workspace, use a Shared Drive for organizational ownership. Files survive if an individual leaves.
-- **My Drive (fallback):** If no Workspace, use a dedicated Google account's My Drive and share the root folder with the service account.
+- The dedicated `KWD Document Center - Drive Storage` OAuth client uses the approved `drive.file` scope.
+- The application uses the configured `GOOGLE_DRIVE_ROOT_FOLDER_ID` and logical folder mapping.
+- The application does not use a service account, Shared Drive, or legacy-file import in this phase.
+- The one-time refresh-token setup is restricted to authorized administrators and is separate from Supabase Google login.
 
 ## 3. File Naming Convention [PENDING CONFIRMATION]
 
@@ -53,10 +53,10 @@ If KWD prefers to keep original file names, the application stores the original 
 
 ## 5. File Access Control [PROPOSED]
 
-- Files uploaded by the service account are owned by the service account.
-- **Application-mediated access:** The server fetches/serves files via the Drive API. Users do not need individual Drive permissions.
-- **Direct Drive access:** If KWD wants staff to also browse files in Drive directly, the folder must be shared with those users separately. This is a KWD operational decision.
-- **"Open in Drive" button:** The constructed Drive URL will work only if the user has native Drive access to the file. Otherwise, the application should provide a "Download" option that proxies through the server.
+- Files uploaded through the Drive OAuth client are stored in the KWD official account's My Drive.
+- **Application-mediated access:** The server fetches/serves files through the Drive API using the server-side refresh token.
+- **Direct Drive access:** Native Drive access depends on the KWD account's sharing and folder permissions. This is separate from application authorization.
+- **"Open in Drive" button:** The constructed Drive URL works when the user has native Drive access. The server-proxied "Download" operation remains available for authorized application users.
 
 ## 6. Handling External Modifications [PROPOSED]
 
@@ -70,8 +70,7 @@ If KWD prefers to keep original file names, the application stores the original 
 ## 7. Pending Decisions [PENDING CONFIRMATION]
 
 - Drive root folder ID
-- My Drive vs Shared Drive
-- Which Google account owns the Drive
+- KWD root folder ID
 - Desired folder hierarchy (by type, by year, or flat)
 - File naming convention approval
 - Whether staff should have direct Drive access alongside application access

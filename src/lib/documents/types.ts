@@ -20,6 +20,8 @@ export interface DocumentRecord {
   drive_url: string | null;
   file_name: string | null;
   file_type: string | null;
+  filing_year: number | null;
+  filing_subcategory: string | null;
   status: "ACTIVE" | "ARCHIVED";
   created_by: string | null;
   created_at: string;

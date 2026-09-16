@@ -20,9 +20,9 @@
 - Do not implement Google Drive, Google Sheets, file uploads, or registry synchronization in this phase.
 
 ## Phase 3 — Google Integration
-- Integrate Google Drive API for file uploads.
-- Evaluate and, only after explicit architectural approval, implement any Google Sheets integration or synchronization role. It must not create a competing registry source of truth.
-- Build the complete upload workflow (file + metadata).
+- Implement Admin-only Google Drive upload, open, and download operations.
+- Keep Supabase/PostgreSQL as the sole application metadata registry.
+- Google Sheets and Accounting are outside this implementation.
 
 ## Phase 4 — User Management
 - Implement role-based access control (Admin, Staff, Viewer).

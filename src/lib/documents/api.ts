@@ -1,9 +1,9 @@
 import type { AuthorizationResult } from "../auth/types";
+import type { NextRequest } from "next/server";
 import type { QueryValidationResult } from "./query";
 import type { DocumentListQuery, DocumentRecord, PaginatedDocuments } from "./types";
 
 type AuthorizationFailure = Exclude<AuthorizationResult["kind"], "authorized">;
-type RequestWithUrl = { nextUrl: URL };
 
 function json(body: unknown, status = 200) {
   return Response.json(body, { status });
@@ -25,7 +25,7 @@ export interface DocumentsApiDependencies {
 }
 
 export function createListDocumentsHandler(dependencies: Pick<DocumentsApiDependencies, "getAuthorization" | "parseListQuery" | "listDocuments">) {
-  return async function GET(request: RequestWithUrl) {
+  return async function GET(request: NextRequest) {
     const authorization = await dependencies.getAuthorization();
     if (authorization.kind !== "authorized") return authorizationError(authorization.kind);
 
@@ -43,7 +43,7 @@ export function createListDocumentsHandler(dependencies: Pick<DocumentsApiDepend
 }
 
 export function createGetDocumentHandler(dependencies: Pick<DocumentsApiDependencies, "getAuthorization" | "isDocumentId" | "getDocumentById">) {
-  return async function GET(_request: RequestWithUrl, { params }: { params: Promise<{ id: string }> }) {
+  return async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
     const authorization = await dependencies.getAuthorization();
     if (authorization.kind !== "authorized") return authorizationError(authorization.kind);
 

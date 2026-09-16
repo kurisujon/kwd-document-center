@@ -13,13 +13,13 @@ Currently, digital document management involves a cumbersome manual workflow acr
 - **Direct Drive Integration:** Files are stored securely in Google Drive while the application manages access and metadata.
 
 ## Architecture Overview
-The application acts as a thin, controlled interface between KWD staff, Supabase/PostgreSQL (for authentication, authorization, and the Phase 2 document registry), and Google Drive (for file storage in Phase 3). Google Sheets integration is deferred to Phase 3 and must not become a competing registry source of truth without an explicit architectural decision. Vercel hosts the Next.js application layer.
+The application acts as a thin, controlled interface between KWD staff, Supabase/PostgreSQL (authentication, authorization, and the sole application metadata registry), and Google Drive (file storage). Phase 3 implements the Admin documents flow only. Google Sheets and Accounting are out of scope. Vercel hosts the Next.js application layer.
 
 ## Technology Stack
 - **Frontend/Application Layer:** Next.js, React, TypeScript
 - **Authentication, Authorization & Phase 2 Application Registry:** Supabase/PostgreSQL
 - **File Storage:** Google Drive API
-- **Google Sheets Integration:** Deferred to Phase 3; its role requires explicit architectural confirmation
+- **Google Sheets Integration:** Not used by the Phase 3 Admin implementation
 - **Deployment:** Vercel
 - **Version Control:** GitHub
 
@@ -32,7 +32,7 @@ The application acts as a thin, controlled interface between KWD staff, Supabase
 - **Phase 0:** Requirements & Documentation (Current)
 - **Phase 1:** Foundation (Next.js, Supabase, Auth)
 - **Phase 2:** Document Registry (Search, filters)
-- **Phase 3:** Google Integration (Drive, Sheets, Upload)
+- **Phase 3:** Admin Google Drive upload/open/download integration
 - **Phase 4:** User Management (Roles, Admin)
 - **Phase 5:** Testing & Hardening
 - **Phase 6:** Deployment

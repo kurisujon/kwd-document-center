@@ -13,7 +13,7 @@ The expected standard workflow for adding a document to the system:
 8. Application determines the correct Google Drive destination.
 9. **Upload to Google Drive** executes.
 10. Application receives the new Drive File ID.
-11. **Save registry record** executes (saving to Sheets/Supabase).
+11. **Save registry record** executes in Supabase/PostgreSQL.
 12. UI displays success.
 13. User can now open/view the document in the system.
 
