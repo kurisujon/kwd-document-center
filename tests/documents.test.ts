@@ -18,6 +18,8 @@ const document: DocumentRecord = {
   drive_url: null,
   file_name: null,
   file_type: null,
+  filing_year: null,
+  filing_subcategory: null,
   status: "ACTIVE",
   created_by: null,
   created_at: "2026-09-01T00:00:00.000Z",

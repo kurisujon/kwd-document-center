@@ -4,9 +4,9 @@
 - **Platform**: Vercel (Hobby or Pro tier)
 - **Framework**: Next.js (App Router)
 - **Auth & App Data**: Supabase (cloud-hosted)
-- **File Storage**: Google Drive (via Google Cloud service account)
+- **File Storage**: Google Drive (via OAuth for the KWD official account)
 - **Phase 2 Document Registry**: Supabase/PostgreSQL
-- **Phase 3 Google Sheets Integration**: Deferred; any synchronization role requires explicit architectural approval
+- **Google Sheets**: Not used by the Phase 3 Admin implementation
 
 ## 2. Vercel Considerations [PROPOSED]
 
@@ -27,7 +27,7 @@ Because Vercel serverless functions have a ~4.5 MB body size limit, large file u
 Recommendation: Start with Option A (4 MB limit). Most KWD documents are scanned PDFs and office documents well under 4 MB. If larger files are needed, implement Option B.
 
 ### Execution Time
-- Upload flow involves: file validation + Drive API upload + Sheets API write.
+- Upload flow involves: file validation + Drive API upload + Supabase registry finalization.
 - Expected time: 3-8 seconds for typical documents.
 - For Hobby tier (10s limit): This is tight but usually sufficient.
 - For Pro tier (60s limit): Comfortable.
@@ -42,28 +42,24 @@ All environment variables must be configured in the Vercel dashboard.
 | `NEXT_PUBLIC_SUPABASE_URL` | Public | Supabase project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Public | Supabase anon key |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server | Supabase service role key |
-| `GOOGLE_SERVICE_ACCOUNT_EMAIL` | Server | GCP service account email |
-| `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY` | Server | GCP service account private key |
-| `GOOGLE_DRIVE_ROOT_FOLDER_ID` | Server | Root Drive folder ID |
-| `GOOGLE_SHEET_ID` | Server | Registry spreadsheet ID |
-| `GOOGLE_SHEET_NAME` | Server | Sheet tab name (e.g., "Registry") |
+| `GOOGLE_DRIVE_CLIENT_ID` | Server | Drive Storage OAuth client ID |
+| `GOOGLE_DRIVE_CLIENT_SECRET` | Server | Drive Storage OAuth client secret |
+| `GOOGLE_DRIVE_REFRESH_TOKEN` | Server | OAuth refresh token for `kiblawanwaterdistrict@gmail.com` |
+| `GOOGLE_DRIVE_ROOT_FOLDER_ID` | Server | KWD My Drive root folder ID |
+| `GOOGLE_DRIVE_ADMIN_FOLDER_MAP` | Server | JSON mapping of Admin logical destinations to exact Drive folder IDs |
+| `ADMIN_UPLOAD_MAX_BYTES` | Server | Optional upload limit; defaults to 4194304 bytes |
 
-### Per-Type Folder IDs (if using type-based folders)
-| Variable | Type | Description |
-|---|---|---|
-| `DRIVE_FOLDER_MEMORANDUM` | Server | Folder ID for Memorandums |
-| `DRIVE_FOLDER_BOARD_RESOLUTION` | Server | Folder ID for Board Resolutions |
-| `...` | Server | One per document type |
+Folder IDs must be provisioned after KWD approves the physical My Drive folder structure. The application does not import legacy files or create, move, or rename folders during this phase.
 
 ## 4. Deployment Checklist [PROPOSED]
 1. Create Supabase project (production instance, separate from dev)
-2. Create Google Cloud project with service account
-3. Share target Drive folder with service account
-4. Share target Google Sheet with service account
-5. Configure all environment variables in Vercel
+2. Configure the dedicated Drive Storage OAuth client and development callback URI
+3. Run the Admin-only Drive setup flow while signed in as `kiblawanwaterdistrict@gmail.com`
+4. Store the returned refresh token in Vercel as `GOOGLE_DRIVE_REFRESH_TOKEN`
+5. Configure the remaining environment variables in Vercel
 6. Connect GitHub repository to Vercel
 7. Deploy
-8. Verify: authentication flow, upload, search, admin functions
+8. Verify: authentication, Admin upload, registry search, open, and download
 9. Add initial admin user to Supabase users table
 
 ## 5. Operational Simplicity [CONFIRMED]
@@ -77,5 +73,4 @@ All environment variables must be configured in the Vercel dashboard.
 - **Vercel Pro**: $20/month (if needed for larger payloads or execution time)
 - **Supabase Free**: Sufficient for auth + small user table + Phase 2 document registry + upload tracking
 - **Google Drive**: Free (uses existing KWD storage)
-- **Google Sheets API**: Free (within standard quotas: 300 requests/min/project)
 - **Estimated total**: $0-20/month

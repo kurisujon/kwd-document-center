@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { DocumentListQuery, DocumentRecord, PaginatedDocuments } from "./types";
 
-const documentColumns = "document_id, document_type, document_number, document_date, subject, persons_involved, drive_file_id, drive_url, file_name, file_type, status, created_by, created_at, updated_at";
+export const documentColumns = "document_id, document_type, document_number, document_date, subject, persons_involved, drive_file_id, drive_url, file_name, file_type, filing_year, filing_subcategory, status, created_by, created_at, updated_at";
 
 function escapeLikeSearch(value: string): string {
   return value.replace(/[\\%_(),.]/g, "\\$&");
@@ -12,7 +12,7 @@ export async function listDocuments(supabase: SupabaseClient, query: DocumentLis
 
   if (query.q) {
     const search = escapeLikeSearch(query.q);
-    request = request.or(`subject.ilike.%${search}%,document_number.ilike.%${search}%,persons_involved.ilike.%${search}%`);
+    request = request.or(`subject.ilike.%${search}%,document_number.ilike.%${search}%,persons_involved.ilike.%${search}%,file_name.ilike.%${search}%,filing_subcategory.ilike.%${search}%`);
   }
   if (query.type) request = request.eq("document_type", query.type);
   if (query.dateFrom) request = request.gte("document_date", query.dateFrom);

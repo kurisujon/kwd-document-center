@@ -17,7 +17,7 @@ The application acts as a controlled, secure interface between KWD staff and KWD
     │                                  │
     ├── Authentication                 ├── Google Drive (File Storage)
     ├── Users Table                    │
-    ├── Roles                          └── Google Sheets [DEFERRED]
+    ├── Roles
     ├── Document Registry
     ├── Upload Tracking [PHASE 3]
     └── Audit Logs [PENDING CONFIRMATION]
@@ -26,8 +26,8 @@ The application acts as a controlled, secure interface between KWD staff and KWD
 ## 2. Core Component Responsibilities [CONFIRMED]
 
 - **Google Drive:** Actual document file storage. Do NOT use Supabase Storage.
-- **Google Sheets:** Not implemented in Phase 2. Any future synchronization role requires an explicit architectural decision and must not create a competing registry source of truth.
-- **Supabase/PostgreSQL:** Authentication, authorized users, roles, and the Phase 2 application document registry. Future audit-related metadata remains subject to approval.
+- **Google Sheets:** Out of scope for Phase 3 Admin documents.
+- **Supabase/PostgreSQL:** Authentication, authorized users, roles, the sole application document registry, and upload tracking.
 - **Vercel:** Application hosting and deployment.
 - **GitHub:** Source control.
 
@@ -42,7 +42,6 @@ graph LR
     SA -->|"Orchestrate"| DocSvc["Document Service"]
     DocSvc -->|"Read / Write Registry"| RegSvc["Registry Service (Supabase/PostgreSQL)"]
     DocSvc -.->|"Phase 3: Upload / Retrieve Files"| DriveSvc["Drive Service (Google Drive API)"]
-    DocSvc -.->|"Phase 3: Explicitly approved role only"| SheetsSvc["Google Sheets Service"]
     DocSvc -.->|"Phase 3: Track Uploads"| DB["Supabase (upload_attempts)"]
 ```
 
@@ -58,10 +57,9 @@ graph LR
 - Construct Drive view/download URLs
 - Handle Drive API errors
 
-### Google Sheets Service [PHASE 3, DEFERRED]
-- No Phase 2 implementation
-- Any future read/write or synchronization behavior requires an explicit architectural decision
-- Must not create a competing document registry source of truth
+### Google Sheets Service [OUT OF SCOPE]
+- No Phase 3 Admin implementation
+- Supabase/PostgreSQL remains the sole application metadata registry
 
 ### Document Service [PHASE 2 / PHASE 3 EXTENSION]
 - Coordinate Phase 2 registry reads through Supabase/PostgreSQL
@@ -75,14 +73,17 @@ graph LR
 - Look up user and role from users table
 - Enforce authorization on every request
 
-## 4. Service Account Strategy [PROPOSED]
+## 4. Google Drive OAuth Strategy [CONFIRMED PHASE 3]
 
-All Google API operations use a Google Cloud service account — NOT per-user OAuth.
+Google Drive operations use a dedicated OAuth client for the KWD official storage account, `kiblawanwaterdistrict@gmail.com`. This client is separate from the existing Supabase Google authentication client.
 
-- Service account credentials stored server-side only (environment variables)
-- Service account granted Editor access on the target Drive folder and Sheet
-- All uploaded files are owned by the service account, ensuring consistent access
-- Never exposed to the client
+- The Drive client uses the approved `drive.file` scope.
+- The one-time Admin setup flow is `/api/admin/drive-setup/authorize` → Google → `/api/admin/drive-setup/callback`.
+- The callback is separate from `src/app/auth/callback/route.ts`, which belongs to Supabase login.
+- The resulting refresh token is configured only as the server-side `GOOGLE_DRIVE_REFRESH_TOKEN` Vercel environment variable.
+- Client ID, client secret, refresh token, and access tokens are never exposed to normal application users or logged.
+- Files are stored in the KWD official account's My Drive under the configured root and mapped destination folders.
+- The root folder ID and logical destination mapping remain configuration; the application does not import legacy files.
 
 ## 5. Upload Consistency [PROPOSED]
 
@@ -93,7 +94,6 @@ sequenceDiagram
     participant C as Client
     participant S as Server
     participant D as Google Drive
-    participant G as Google Sheets
     participant DB as Supabase
 
     C->>S: Upload (file + metadata + idempotency_key)
@@ -101,21 +101,20 @@ sequenceDiagram
     alt Key exists (COMPLETE)
         S-->>C: Return existing document
     else Key exists (PENDING_REGISTRY)
-        S->>G: Retry registry write
+        S->>DB: Retry registry finalization
     else New upload
-        S->>DB: Create record (UPLOADING)
-        S->>D: 1. Upload file
+        S->>DB: Create PENDING_UPLOAD attempt and reserve Drive file ID
+        S->>D: 1. Resumable upload using reserved file ID
         alt Drive fails
             S->>DB: Update (FAILED)
             S-->>C: Error — safe state
         else Drive succeeds
             D-->>S: File ID
             S->>DB: Update (PENDING_REGISTRY)
-            S->>G: 2. Write metadata row
-            alt Sheets fails (after 3 retries)
-                S-->>C: Error — admin intervention needed
-            else Sheets succeeds
-                S->>DB: Update (COMPLETE)
+            S->>DB: 2. Transactionally insert document and complete attempt
+            alt Registry finalization fails
+                S-->>C: Error — retry with same key
+            else Registry succeeds
                 S-->>C: 201 Success
             end
         end
@@ -127,7 +126,7 @@ sequenceDiagram
 | Failure Point | System State | Recovery |
 |---|---|---|
 | Drive upload fails | No file exists, no registry entry | Safe. User retries. |
-| Sheets write fails | Orphaned Drive file | Retry 3×. If still failing: mark PENDING_REGISTRY. Admin reconciliation UI. |
+| Registry finalization fails | Drive file retained in PENDING_REGISTRY | Retry with the same idempotency key without another Drive upload. |
 | Response lost to client | Upload may be complete | Idempotency key prevents duplicate on retry. |
 
 ## 6. Upload Idempotency [PROPOSED]
@@ -136,7 +135,7 @@ sequenceDiagram
 2. Key is sent with the upload request
 3. Server checks `upload_attempts` table for this key:
    - `COMPLETE` → return existing document (no re-upload)
-   - `PENDING_REGISTRY` → retry the Sheets write only
+   - `PENDING_REGISTRY` → retry the Supabase registry finalization only
    - Not found → proceed with new upload
 4. This handles: browser retries, double-clicks, Vercel request retries, lost responses
 
