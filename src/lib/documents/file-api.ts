@@ -7,6 +7,7 @@ import { DocumentUploadError } from "./upload-service";
 import { UploadValidationError, validateAdminUploadForm } from "./upload-validation";
 import type { UploadResult, ValidatedAdminUpload } from "./upload-types";
 import type { AuthorizedUser } from "../auth/types";
+import { isSameOrigin } from "../http/origin";
 
 function jsonError(code: string, message: string, status: number, field?: string) {
   return Response.json({ error: { code, message, ...(field ? { field } : {}) } }, { status });
@@ -22,16 +23,6 @@ function driveError(error: unknown) {
     return jsonError("NOT_FOUND", "The document file is unavailable in Google Drive.", 404);
   }
   return jsonError("DRIVE_ERROR", "The document file is temporarily unavailable.", 503);
-}
-
-export function isSameOrigin(request: Request): boolean {
-  const origin = request.headers.get("origin");
-  if (!origin) return false;
-  try {
-    return new URL(origin).origin === new URL(request.url).origin;
-  } catch {
-    return false;
-  }
 }
 
 export function createUploadDocumentHandler(dependencies: {

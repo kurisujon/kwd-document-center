@@ -48,6 +48,15 @@ Phase 1 login error states distinguish session failure (`/login?error=auth`), an
 - **Revoked Google access**: If a user deletes their Google account or changes email, their Supabase auth session will fail. The application handles this gracefully.
 - **Staff departure**: Admin deactivates the account. No need to revoke Google OAuth credentials specifically.
 
+### Phase 4 database mutation boundary [CONFIRMED]
+
+- User-management writes are available only through server-called PostgreSQL RPCs granted to `service_role`; browser roles receive no user-table write policy or RPC execution grant.
+- The server derives the actor's application-user ID from the authenticated authorization record. A browser request must never supply that actor ID.
+- Each RPC independently verifies that the actor remains an ACTIVE ADMIN.
+- User creation and update RPCs acquire the same transaction advisory lock before actor verification. The lock serializes the intentionally small user-management workload and protects ACTIVE ADMIN continuity under concurrent requests.
+- An ADMIN cannot mutate their own role or status. An update that would remove the final ACTIVE ADMIN is rejected at the database boundary.
+- User email is canonical and immutable because it is matched to the authenticated Google email. Phase 4 updates are restricted to another user's role and status.
+
 ## 6. Environment Variables [CONFIRMED]
 
 ### Client-Safe (NEXT_PUBLIC_*)
