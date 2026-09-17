@@ -18,7 +18,9 @@ Manages application access and authorization. Stored in Supabase.
 | `created_at` | TIMESTAMPTZ | default now() | Record creation time |
 | `updated_at` | TIMESTAMPTZ | default now() | Last update time |
 
-**Pre-Phase-4 requirement:** Phase 1 sets `public.users.updated_at` on insertion only and implements no user updates. Before enabling user mutations, add and verify a database update trigger to maintain `updated_at` on every update. The trigger is intentionally deferred from Phase 1.
+**Phase 4 database contract [CONFIRMED]:** `public.users.updated_at` is maintained by a `BEFORE UPDATE` database trigger. Email is canonical (`lower(btrim(email))`), unique, and immutable because it is the application authorization identity. Names are non-empty after trimming and limited to 120 characters; email is limited to 254 characters. Privileged user creation and role/status updates use server-only `SECURITY DEFINER` RPCs. Direct `INSERT`, `UPDATE`, and `DELETE` privileges are revoked from application roles, while the existing authenticated self-read policy remains unchanged.
+
+Phase 4 user-management mutations share one PostgreSQL transaction advisory lock. Each RPC acquires that lock before reauthorizing the actor as an ACTIVE ADMIN. This serializes concurrent administrative mutations and prevents two cross-target requests from jointly removing every ACTIVE ADMIN. Email and name are not updateable in Phase 4.
 
 ### upload_attempts [PROPOSED, PHASE 3]
 Tracks upload operations for idempotency and orphan recovery. This is NOT a replacement for the document registry.

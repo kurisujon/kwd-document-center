@@ -63,12 +63,14 @@ Responsibilities:
 | Open file | GET /api/documents/:id/open | Validate Drive availability and redirect | Yes | VIEWER |
 | Download file | GET /api/documents/:id/download | Stream through the server | Yes | VIEWER |
 
-### Users (Admin Only)
+### Users (Admin Only) [CONFIRMED PHASE 4]
 | Operation | Method | Purpose | Auth Required | Min Role |
 |---|---|---|---|---|
-| List users | GET /api/users | List authorized users | Yes | ADMIN |
-| Add user | POST /api/users | Authorize a new user | Yes | ADMIN |
-| Update user | PATCH /api/users/:id | Update role/status | Yes | ADMIN |
+| List users | GET /api/admin/users | List authorized users | Yes | ADMIN |
+| Add user | POST /api/admin/users | Authorize a new ACTIVE user from email, name, and role | Yes | ADMIN |
+| Update user | PATCH /api/admin/users/[id] | Update another user's role and/or status | Yes | ADMIN |
+
+User-management mutations accept JSON only, require same-origin requests, derive the actor ID from server authorization, and use the server-only `service_role` client to call the Phase 4 PostgreSQL RPC boundary. Browser input cannot select the actor. Email and name are not editable. Responses containing administration data use `Cache-Control: private, no-store`.
 
 ### Drive OAuth Setup (Admin Only)
 | Operation | Method | Purpose | Auth Required | Min Role |
