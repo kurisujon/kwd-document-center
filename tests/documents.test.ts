@@ -124,22 +124,26 @@ test("the list API rejects unauthenticated, unauthorized, and inactive users", a
   for (const [authorization, status] of [[{ kind: "unauthenticated" }, 401], [{ kind: "not-authorized" }, 403], [{ kind: "inactive" }, 403]] as const) {
     const response = await listHandler(authorization)(request("/api/documents"));
     assert.equal(response.status, status);
+    assert.equal(response.headers.get("cache-control"), "private, no-store");
   }
 });
 
 test("the list API validates input and returns safe failures", async () => {
   const invalid = await listHandler(authorized)(request("/api/documents?page=0"));
   assert.equal(invalid.status, 400);
+  assert.equal(invalid.headers.get("cache-control"), "private, no-store");
   assert.equal((await invalid.json()).error.code, "VALIDATION_ERROR");
 
   const failed = await listHandler(authorized, async () => { throw new Error("database details"); })(request("/api/documents"));
   assert.equal(failed.status, 500);
+  assert.equal(failed.headers.get("cache-control"), "private, no-store");
   assert.deepEqual(await failed.json(), { error: { code: "REGISTRY_ERROR", message: "Documents are temporarily unavailable. Please try again." } });
 });
 
 test("the list API returns documents for an authorized user", async () => {
   const response = await listHandler(authorized)(request("/api/documents"));
   assert.equal(response.status, 200);
+  assert.equal(response.headers.get("cache-control"), "private, no-store");
   assert.deepEqual(await response.json(), listResult);
 });
 
@@ -151,24 +155,29 @@ test("the document detail API rejects unauthenticated, unauthorized, and inactiv
   for (const [authorization, status] of [[{ kind: "unauthenticated" }, 401], [{ kind: "not-authorized" }, 403], [{ kind: "inactive" }, 403]] as const) {
     const response = await detailHandler(authorization)(request("/api/documents/document"), { params: Promise.resolve({ id: document.document_id }) });
     assert.equal(response.status, status);
+    assert.equal(response.headers.get("cache-control"), "private, no-store");
   }
 });
 
 test("the document detail API validates, handles missing records and returns safe failures", async () => {
   const invalid = await detailHandler(authorized)(request("/api/documents/bad"), { params: Promise.resolve({ id: "bad" }) });
   assert.equal(invalid.status, 400);
+  assert.equal(invalid.headers.get("cache-control"), "private, no-store");
 
   const missing = await detailHandler(authorized, async () => null)(request("/api/documents/document"), { params: Promise.resolve({ id: document.document_id }) });
   assert.equal(missing.status, 404);
+  assert.equal(missing.headers.get("cache-control"), "private, no-store");
 
   const failed = await detailHandler(authorized, async () => { throw new Error("database details"); })(request("/api/documents/document"), { params: Promise.resolve({ id: document.document_id }) });
   assert.equal(failed.status, 500);
+  assert.equal(failed.headers.get("cache-control"), "private, no-store");
   assert.deepEqual(await failed.json(), { error: { code: "REGISTRY_ERROR", message: "Document details are temporarily unavailable. Please try again." } });
 });
 
 test("the document detail API returns a document for an authorized user", async () => {
   const response = await detailHandler(authorized)(request("/api/documents/document"), { params: Promise.resolve({ id: document.document_id }) });
   assert.equal(response.status, 200);
+  assert.equal(response.headers.get("cache-control"), "private, no-store");
   assert.deepEqual(await response.json(), { document });
 });
 

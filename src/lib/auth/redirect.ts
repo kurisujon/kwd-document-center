@@ -2,8 +2,9 @@ const applicationOrigin = "https://kwd-document-center.invalid";
 
 export const authenticationFailureRedirectPath = "/login?error=auth";
 
-export function getAuthorizationRedirectPath(kind: "unauthenticated" | "not-authorized" | "inactive"): string {
+export function getAuthorizationRedirectPath(kind: "unauthenticated" | "not-authorized" | "inactive" | "auth-error"): string {
   if (kind === "unauthenticated") return "/login";
+  if (kind === "auth-error") return authenticationFailureRedirectPath;
   return kind === "inactive" ? "/login?error=inactive" : "/login?error=unauthorized";
 }
 

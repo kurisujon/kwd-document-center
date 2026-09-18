@@ -16,4 +16,5 @@ export type AuthorizationResult =
   | { kind: "authorized"; user: AuthorizedUser }
   | { kind: "unauthenticated" }
   | { kind: "not-authorized" }
-  | { kind: "inactive" };
+  | { kind: "inactive" }
+  | { kind: "auth-error" };
