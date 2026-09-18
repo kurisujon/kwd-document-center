@@ -6,7 +6,10 @@ import type { DocumentListQuery, DocumentRecord, PaginatedDocuments } from "./ty
 type AuthorizationFailure = Exclude<AuthorizationResult["kind"], "authorized">;
 
 function json(body: unknown, status = 200) {
-  return Response.json(body, { status });
+  return Response.json(body, {
+    status,
+    headers: { "Cache-Control": "private, no-store" },
+  });
 }
 
 function authorizationError(kind: AuthorizationFailure) {

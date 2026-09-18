@@ -17,6 +17,13 @@ type AuthorizationDependency = () => Promise<AuthorizationResult>;
 type ExchangeDependency = (code: string, redirectUri: string) => ReturnType<typeof exchangeDriveOAuthCode>;
 type RootFolderDependency = (drive: Parameters<typeof ensureRootDriveFolder>[0]) => ReturnType<typeof ensureRootDriveFolder>;
 
+function protectSetupResponse(response: NextResponse): NextResponse {
+  response.headers.set("cache-control", "private, no-store");
+  response.headers.set("referrer-policy", "no-referrer");
+  response.headers.set("x-content-type-options", "nosniff");
+  return response;
+}
+
 function authorizationFailure(authorization: AuthorizationResult): NextResponse | null {
   if (authorization.kind === "authorized" && hasMinimumRole(authorization.user.role, "ADMIN")) return null;
   if (authorization.kind === "unauthenticated") {
@@ -41,12 +48,12 @@ export function createDriveAuthorizeHandler(dependencies: { getAuthorization?: A
   return async function driveAuthorize(request: NextRequest): Promise<NextResponse> {
     const authorization = await authorize();
     const failure = authorizationFailure(authorization);
-    if (failure) return failure;
+    if (failure) return protectSetupResponse(failure);
 
     try {
       const state = generateDriveOAuthState();
       const redirectUri = getDriveOAuthRedirectUri(request.url);
-      const response = NextResponse.redirect(getDriveAuthorizationUrl(redirectUri, state));
+      const response = protectSetupResponse(NextResponse.redirect(getDriveAuthorizationUrl(redirectUri, state)));
       response.cookies.set(driveOAuthStateCookie, state, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
@@ -56,7 +63,7 @@ export function createDriveAuthorizeHandler(dependencies: { getAuthorization?: A
       });
       return response;
     } catch {
-      return NextResponse.json({ error: { code: "CONFIGURATION_ERROR", message: "Drive OAuth is not configured." } }, { status: 503 });
+      return protectSetupResponse(NextResponse.json({ error: { code: "CONFIGURATION_ERROR", message: "Drive OAuth is not configured." } }, { status: 503 }));
     }
   };
 }
@@ -68,10 +75,10 @@ export function createDriveCallbackHandler(dependencies: { getAuthorization?: Au
   return async function driveCallback(request: NextRequest): Promise<NextResponse> {
     const authorization = await authorize();
     const failure = authorizationFailure(authorization);
-    if (failure) return failure;
+    if (failure) return clearStateCookie(protectSetupResponse(failure));
 
     const url = new URL(request.url);
-    const responseForError = (message: string, status: number) => clearStateCookie(NextResponse.json({ error: { code: "DRIVE_SETUP_ERROR", message } }, { status }));
+    const responseForError = (message: string, status: number) => clearStateCookie(protectSetupResponse(NextResponse.json({ error: { code: "DRIVE_SETUP_ERROR", message } }, { status })));
     const state = url.searchParams.get("state");
     if (!matchesDriveOAuthState(request.cookies.get(driveOAuthStateCookie)?.value, state)) {
       return responseForError("The Drive OAuth setup request is invalid or expired.", 400);
@@ -88,21 +95,19 @@ export function createDriveCallbackHandler(dependencies: { getAuthorization?: Au
       if (!exchange) return responseForError("Google did not return a refresh token. Retry setup with consent.", 502);
       const rootFolderId = await ensureRootFolder(exchange.drive);
 
-      const response = new NextResponse(
+      const response = protectSetupResponse(new NextResponse(
         "Drive authorization complete. Copy the value below into the Vercel environment variable GOOGLE_DRIVE_REFRESH_TOKEN, then close this page.\n\n"
           + `GOOGLE_DRIVE_REFRESH_TOKEN=${exchange.refreshToken}\n`
           + `GOOGLE_DRIVE_ROOT_FOLDER_ID=${rootFolderId}\n`,
         {
           status: 200,
           headers: {
-            "cache-control": "no-store, max-age=0",
             "content-type": "text/plain; charset=utf-8",
             "content-security-policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
             "pragma": "no-cache",
-            "x-content-type-options": "nosniff",
           },
         },
-      );
+      ));
       return clearStateCookie(response);
     } catch {
       return responseForError("Drive OAuth setup could not be completed. Please retry.", 502);

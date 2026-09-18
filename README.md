@@ -23,6 +23,19 @@ The application acts as a thin, controlled interface between KWD staff, Supabase
 - **Deployment:** Vercel
 - **Version Control:** GitHub
 
+## Local Verification
+
+Install the locked dependency set and run the non-destructive verification gate:
+
+```bash
+npm ci
+npm run verify
+```
+
+The local PostgreSQL integration suites require separate explicit loopback-only opt-in variables and remain skipped during normal verification and pull-request CI.
+
+Use `npm run audit:production` when registry access is available to check high- and critical-severity production dependency advisories. Pull-request CI runs this production-only audit separately from the local verification gate.
+
 ## Documentation Structure
 - `/docs`: Core requirements, architecture, data models, and workflows.
 - `/docs/architecture`: Architecture Decision Records (ADRs).

@@ -5,20 +5,52 @@ import { hasMinimumRole } from "./permissions";
 import { getAuthorizationRedirectPath } from "./redirect";
 import type { AuthorizationResult, AuthorizedUser, Role } from "./types";
 
-export async function getAuthorization(): Promise<AuthorizationResult> {
-  if (!isSupabaseConfigured()) return { kind: "not-authorized" };
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user?.email) return { kind: "unauthenticated" };
+type SessionUser = { email?: string | null } | null;
 
+export type AuthorizationDependencies = {
+  isSupabaseConfigured: () => boolean;
+  getSessionUser: () => Promise<SessionUser>;
+  findAuthorizedUser: (email: string) => Promise<AuthorizedUser | null>;
+};
+
+async function getSessionUser(): Promise<SessionUser> {
+  const supabase = await createClient();
+  const { data: { user }, error } = await supabase.auth.getUser();
+  if (error) throw error;
+  return user;
+}
+
+async function findAuthorizedUser(email: string): Promise<AuthorizedUser | null> {
+  const supabase = await createClient();
   const { data, error } = await supabase
     .from("users")
     .select("id, email, name, role, status")
-    .eq("email", user.email.toLowerCase())
+    .eq("email", email)
     .maybeSingle();
 
-  if (error || !data) return { kind: "not-authorized" };
-  const profile = data as AuthorizedUser;
+  if (error) throw error;
+  return data as AuthorizedUser | null;
+}
+
+export async function getAuthorization(overrides: Partial<AuthorizationDependencies> = {}): Promise<AuthorizationResult> {
+  const configured = overrides.isSupabaseConfigured ?? isSupabaseConfigured;
+  if (!configured()) return { kind: "not-authorized" };
+
+  let user: SessionUser;
+  try {
+    user = await (overrides.getSessionUser ?? getSessionUser)();
+  } catch {
+    return { kind: "auth-error" };
+  }
+  if (!user?.email) return { kind: "unauthenticated" };
+
+  let profile: AuthorizedUser | null;
+  try {
+    profile = await (overrides.findAuthorizedUser ?? findAuthorizedUser)(user.email.toLowerCase());
+  } catch {
+    return { kind: "auth-error" };
+  }
+  if (!profile) return { kind: "not-authorized" };
   if (profile.status !== "ACTIVE") return { kind: "inactive" };
   return { kind: "authorized", user: profile };
 }

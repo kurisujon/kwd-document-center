@@ -1,8 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { lookup } from "node:dns/promises";
-import { isIP } from "node:net";
 import test from "node:test";
+import { assertDisposableLocalDatabase } from "./helpers/disposable-local-db.ts";
 
 const databaseUrl = process.env.PHASE4_TEST_DATABASE_URL;
 const destructiveOptIn = process.env.PHASE4_ALLOW_DESTRUCTIVE_LOCAL_DB === "YES";
@@ -15,46 +14,7 @@ type PsqlResult = {
   elapsedMs: number;
 };
 
-type HostLookup = (hostname: string) => Promise<Array<{ address: string; family: number }>>;
-
-function isLoopbackAddress(address: string) {
-  const normalized = address.replace(/^\[|\]$/g, "");
-  if (isIP(normalized) === 4) return normalized.startsWith("127.");
-  return normalized === "::1";
-}
-
-async function defaultHostLookup(hostname: string) {
-  return lookup(hostname, { all: true, verbatim: true });
-}
-
-export async function assertDisposableLocalDatabase(urlValue: string, hostLookup: HostLookup = defaultHostLookup) {
-  const url = new URL(urlValue);
-  assert.ok(
-    url.protocol === "postgres:" || url.protocol === "postgresql:",
-    "PHASE4_TEST_DATABASE_URL must be a PostgreSQL URL.",
-  );
-  const hostname = url.hostname.replace(/^\[|\]$/g, "");
-  const port = url.port || "5432";
-
-  if (isIP(hostname) !== 0) {
-    assert.ok(isLoopbackAddress(hostname), "The destructive concurrency test only accepts a disposable loopback database.");
-    return { hostname, port, addresses: [hostname] };
-  }
-
-  assert.equal(hostname.toLowerCase(), "localhost", "The destructive concurrency test only accepts localhost or numeric loopback addresses.");
-  let resolved: Array<{ address: string; family: number }>;
-  try {
-    resolved = await hostLookup(hostname);
-  } catch {
-    throw new Error("The destructive concurrency test could not resolve localhost to a loopback address.");
-  }
-  assert.ok(resolved.length > 0, "The destructive concurrency test could not resolve localhost to a loopback address.");
-  assert.ok(
-    resolved.every(({ address }) => isLoopbackAddress(address)),
-    "The destructive concurrency test only accepts localhost when every resolved address is loopback.",
-  );
-  return { hostname, port, addresses: resolved.map(({ address }) => address) };
-}
+export { assertDisposableLocalDatabase } from "./helpers/disposable-local-db.ts";
 
 test("destructive concurrency target validation accepts only verified loopback addresses", async () => {
   await assertDisposableLocalDatabase("postgresql://127.0.0.1:54322/postgres");
