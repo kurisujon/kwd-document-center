@@ -2,14 +2,13 @@ import type { AuthorizationResult, AuthorizedUser } from "../auth/types";
 import { isSameOrigin } from "../http/origin";
 import { UserRepositoryError, type UserRepository } from "./repository";
 import { createUserSchema, updateUserSchema, userIdSchema } from "./validation";
+import { protectedJson } from "../http/response";
+import { logOperationalFailure } from "../observability/log";
 
 type AuthorizationFailure = Exclude<AuthorizationResult, { kind: "authorized" }>;
 
 function json(body: unknown, status: number) {
-  return Response.json(body, {
-    status,
-    headers: { "Cache-Control": "private, no-store" },
-  });
+  return protectedJson(body, status);
 }
 
 function jsonError(code: string, message: string, status: number, field?: string) {
@@ -25,6 +24,7 @@ function authorizationError(authorization: AuthorizationFailure) {
 
 function repositoryError(error: unknown) {
   if (!(error instanceof UserRepositoryError)) {
+    logOperationalFailure({ operation: "admin.users", outcome: "failure", category: "UNKNOWN_REPOSITORY_FAILURE", status: 500 });
     return jsonError("INTERNAL_ERROR", "User management is temporarily unavailable.", 500);
   }
 
@@ -91,6 +91,9 @@ export function createListUsersHandler(dependencies: BaseDependencies) {
       const users = await dependencies.repository.listUsers(authorization.user.id);
       return json({ users }, 200);
     } catch (error) {
+      if (error instanceof UserRepositoryError && error.code === "UNKNOWN") {
+        logOperationalFailure({ operation: "admin.users.list", outcome: "failure", category: "REPOSITORY_FAILURE", status: 500 });
+      }
       return repositoryError(error);
     }
   };
@@ -112,6 +115,9 @@ export function createCreateUserHandler(dependencies: BaseDependencies) {
       const user = await dependencies.repository.createUser(authorization.user.id, validation.data);
       return json({ user }, 201);
     } catch (error) {
+      if (error instanceof UserRepositoryError && error.code === "UNKNOWN") {
+        logOperationalFailure({ operation: "admin.users.create", outcome: "failure", category: "REPOSITORY_FAILURE", status: 500 });
+      }
       return repositoryError(error);
     }
   };
@@ -141,6 +147,9 @@ export function createUpdateUserHandler(dependencies: BaseDependencies) {
       );
       return json({ user }, 200);
     } catch (error) {
+      if (error instanceof UserRepositoryError && error.code === "UNKNOWN") {
+        logOperationalFailure({ operation: "admin.users.update", outcome: "failure", category: "REPOSITORY_FAILURE", status: 500, resourceId: targetId.data });
+      }
       return repositoryError(error);
     }
   };

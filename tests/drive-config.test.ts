@@ -26,3 +26,11 @@ test("Drive config falls back to the root folder when the map is empty", () => w
 test("Drive config keeps the safe configuration error when both destinations are missing", () => withConfig(undefined, undefined, () => {
   assert.throws(() => getAdminDriveFolderId(category, 2026, ""), (error: unknown) => error instanceof DriveConfigurationError);
 }));
+
+test("Drive config rejects malformed mappings instead of silently falling back", () => withConfig(JSON.stringify({ "ADMIN|2026|BACTI TEST": "bad folder id" }), "rootFolderId_123", () => {
+  assert.throws(() => getAdminDriveFolderId(category, 2026, ""), (error: unknown) => error instanceof DriveConfigurationError);
+}));
+
+test("Drive config rejects non-object mappings", () => withConfig(JSON.stringify(["folderId_123"]), "rootFolderId_123", () => {
+  assert.throws(() => getAdminDriveFolderId(category, 2026, ""), (error: unknown) => error instanceof DriveConfigurationError);
+}));

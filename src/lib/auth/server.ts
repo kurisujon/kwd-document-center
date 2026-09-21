@@ -4,6 +4,7 @@ import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { hasMinimumRole } from "./permissions";
 import { getAuthorizationRedirectPath } from "./redirect";
 import type { AuthorizationResult, AuthorizedUser, Role } from "./types";
+import { logOperationalFailure } from "../observability/log";
 
 type SessionUser = { email?: string | null } | null;
 
@@ -40,6 +41,7 @@ export async function getAuthorization(overrides: Partial<AuthorizationDependenc
   try {
     user = await (overrides.getSessionUser ?? getSessionUser)();
   } catch {
+    logOperationalFailure({ operation: "auth.authorization", outcome: "failure", category: "SESSION_LOOKUP_FAILED", status: 503 });
     return { kind: "auth-error" };
   }
   if (!user?.email) return { kind: "unauthenticated" };
@@ -48,6 +50,7 @@ export async function getAuthorization(overrides: Partial<AuthorizationDependenc
   try {
     profile = await (overrides.findAuthorizedUser ?? findAuthorizedUser)(user.email.toLowerCase());
   } catch {
+    logOperationalFailure({ operation: "auth.authorization", outcome: "failure", category: "AUTHORIZATION_LOOKUP_FAILED", status: 503 });
     return { kind: "auth-error" };
   }
   if (!profile) return { kind: "not-authorized" };

@@ -2,14 +2,13 @@ import type { AuthorizationResult } from "../auth/types";
 import type { NextRequest } from "next/server";
 import type { QueryValidationResult } from "./query";
 import type { DocumentListQuery, DocumentRecord, PaginatedDocuments } from "./types";
+import { protectedJson } from "../http/response";
+import { logOperationalFailure } from "../observability/log";
 
 type AuthorizationFailure = Exclude<AuthorizationResult["kind"], "authorized">;
 
 function json(body: unknown, status = 200) {
-  return Response.json(body, {
-    status,
-    headers: { "Cache-Control": "private, no-store" },
-  });
+  return protectedJson(body, status);
 }
 
 function authorizationError(kind: AuthorizationFailure) {
@@ -40,6 +39,7 @@ export function createListDocumentsHandler(dependencies: Pick<DocumentsApiDepend
     try {
       return json(await dependencies.listDocuments(validation.data));
     } catch {
+      logOperationalFailure({ operation: "documents.list", outcome: "failure", category: "REGISTRY_READ_FAILED", status: 500 });
       return json({ error: { code: "REGISTRY_ERROR", message: "Documents are temporarily unavailable. Please try again." } }, 500);
     }
   };
@@ -60,6 +60,7 @@ export function createGetDocumentHandler(dependencies: Pick<DocumentsApiDependen
       if (!document) return json({ error: { code: "NOT_FOUND", message: "Document not found." } }, 404);
       return json({ document });
     } catch {
+      logOperationalFailure({ operation: "documents.detail", outcome: "failure", category: "REGISTRY_READ_FAILED", status: 500, resourceId: id });
       return json({ error: { code: "REGISTRY_ERROR", message: "Document details are temporarily unavailable. Please try again." } }, 500);
     }
   };

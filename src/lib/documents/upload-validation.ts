@@ -24,10 +24,11 @@ function text(formData: FormData, field: string): string {
 function maxUploadBytes(): number {
   const configured = process.env.ADMIN_UPLOAD_MAX_BYTES;
   if (!configured) return defaultAdminUploadMaxBytes;
-  if (!/^\d+$/.test(configured) || Number(configured) < 1) {
+  const parsed = Number(configured);
+  if (!/^\d+$/.test(configured) || !Number.isSafeInteger(parsed) || parsed < 1) {
     throw new Error("ADMIN_UPLOAD_MAX_BYTES must be a positive integer.");
   }
-  return Number(configured);
+  return parsed;
 }
 
 function startsWith(bytes: Uint8Array, signature: number[]): boolean {

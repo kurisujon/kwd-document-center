@@ -4,6 +4,7 @@ import type { DriveService } from "../google/drive-types";
 import { DriveServiceError } from "../google/drive-types";
 import type { UploadAttemptRepository } from "./upload-repository";
 import type { UploadAttempt, UploadMetadataSnapshot, UploadResult, ValidatedAdminUpload } from "./upload-types";
+import { logOperationalFailure } from "../observability/log";
 
 export type UploadErrorCode = "VALIDATION_ERROR" | "DRIVE_ERROR" | "REGISTRY_ERROR" | "UPLOAD_IN_PROGRESS";
 
@@ -51,6 +52,7 @@ async function finalize(repository: UploadAttemptRepository, attempt: UploadAtte
   try {
     return { document: await repository.finalize(attempt, user.email), created };
   } catch {
+    logOperationalFailure({ operation: "documents.upload.finalize", outcome: "failure", category: "REGISTRY_FINALIZATION_FAILED", status: 500, resourceId: attempt.id });
     throw new DocumentUploadError("REGISTRY_ERROR", "The file is safely stored, but its registry entry is pending. Retry this upload to finish registration.", 500);
   }
 }
@@ -82,6 +84,7 @@ export async function uploadAdminDocument(input: {
     folderId = getAdminDriveFolderId(upload.metadata.document_type, upload.metadata.filing_year, upload.metadata.filing_subcategory);
   } catch (error) {
     if (error instanceof DriveConfigurationError) {
+      logOperationalFailure({ operation: "documents.upload.configuration", outcome: "failure", category: "DRIVE_DESTINATION_CONFIGURATION_FAILED", status: 503 });
       throw new DocumentUploadError("DRIVE_ERROR", "The destination for this Admin category is not configured.", 503);
     }
     throw error;
@@ -124,6 +127,7 @@ export async function uploadAdminDocument(input: {
       driveFileId = await drive.generateFileId();
     } catch {
       await repository.clearDriveIdReservation(attempt.id, operationToken!);
+      logOperationalFailure({ operation: "documents.upload.reserve", outcome: "failure", category: "DRIVE_ID_RESERVATION_FAILED", status: 503, resourceId: attempt.id });
       throw new DocumentUploadError("DRIVE_ERROR", "Google Drive could not reserve an upload ID. Please retry.", 503);
     }
 
@@ -136,6 +140,7 @@ export async function uploadAdminDocument(input: {
       try {
         persisted = await repository.persistDriveFileId(attempt.id, driveFileId, operationToken!);
       } catch {
+        logOperationalFailure({ operation: "documents.upload.persistence", outcome: "failure", category: "DRIVE_ID_STATE_SAVE_FAILED", status: 500, resourceId: attempt.id });
         throw new DocumentUploadError("REGISTRY_ERROR", "The file upload state could not be saved. Please contact an administrator before retrying.", 500);
       }
     }
@@ -186,6 +191,7 @@ export async function uploadAdminDocument(input: {
       }
       throw new DocumentUploadError("DRIVE_ERROR", "Google Drive upload recovery is pending. Retry this submission with the same idempotency key.", error.kind === "FORBIDDEN" ? 502 : 503);
     }
+    logOperationalFailure({ operation: "documents.upload.state", outcome: "failure", category: "UPLOAD_STATE_SAVE_FAILED", status: 500, resourceId: attempt.id });
     throw new DocumentUploadError("REGISTRY_ERROR", "The file upload state could not be saved. Please contact an administrator before retrying.", 500);
   }
 

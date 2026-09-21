@@ -2,6 +2,8 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { authenticationFailureRedirectPath, getSafeRedirectPath } from "./redirect";
 import { getSupabaseEnv, isSupabaseConfigured } from "../supabase/env";
+import { protectResponse } from "../http/response";
+import { logOperationalFailure } from "../observability/log";
 
 type CallbackExchange = (code: string, request: NextRequest, response: NextResponse) => Promise<{ error: unknown | null }>;
 
@@ -28,18 +30,25 @@ export function createAuthCallbackHandler(dependencies: {
   return async function GET(request: NextRequest) {
     const url = new URL(request.url);
     const safeNext = getSafeRedirectPath(url.searchParams.get("next"));
-    if (!configured()) return NextResponse.redirect(new URL("/login?error=configuration", url.origin));
+    if (!configured()) {
+      logOperationalFailure({ operation: "auth.callback", outcome: "failure", category: "SUPABASE_NOT_CONFIGURED", status: 503 });
+      return protectResponse(NextResponse.redirect(new URL("/login?error=configuration", url.origin)), { noReferrer: true });
+    }
 
     const code = url.searchParams.get("code");
-    if (!code) return NextResponse.redirect(new URL(authenticationFailureRedirectPath, url.origin));
+    if (!code) return protectResponse(NextResponse.redirect(new URL(authenticationFailureRedirectPath, url.origin)), { noReferrer: true });
 
     const response = NextResponse.redirect(new URL(safeNext, url.origin));
     try {
       const { error } = await exchange(code, request, response);
-      if (error) return NextResponse.redirect(new URL(authenticationFailureRedirectPath, url.origin));
-      return response;
+      if (error) {
+        logOperationalFailure({ operation: "auth.callback", outcome: "failure", category: "SESSION_EXCHANGE_REJECTED", status: 502 });
+        return protectResponse(NextResponse.redirect(new URL(authenticationFailureRedirectPath, url.origin)), { noReferrer: true });
+      }
+      return protectResponse(response, { noReferrer: true });
     } catch {
-      return NextResponse.redirect(new URL(authenticationFailureRedirectPath, url.origin));
+      logOperationalFailure({ operation: "auth.callback", outcome: "failure", category: "SESSION_EXCHANGE_FAILED", status: 502 });
+      return protectResponse(NextResponse.redirect(new URL(authenticationFailureRedirectPath, url.origin)), { noReferrer: true });
     }
   };
 }

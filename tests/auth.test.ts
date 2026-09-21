@@ -37,12 +37,16 @@ test("auth callback preserves safe internal redirects and writes only server-man
   assert.equal(response.status, 307);
   assert.equal(location(response), "/admin/users");
   assert.equal(response.cookies.get("sb-session")?.value, "server-managed");
+  assert.equal(response.headers.get("cache-control"), "private, no-store");
+  assert.equal(response.headers.get("referrer-policy"), "no-referrer");
+  assert.equal(response.headers.get("x-content-type-options"), "nosniff");
 });
 
 test("auth callback rejects missing/unsafe redirects and suppresses provider diagnostics", async () => {
   const configured = () => true;
   const missingCode = await createAuthCallbackHandler({ isSupabaseConfigured: configured })(callbackRequest("?next=/documents"));
   assert.equal(location(missingCode), authenticationFailureRedirectPath);
+  assert.equal(missingCode.headers.get("cache-control"), "private, no-store");
 
   const unsafeRedirect = await createAuthCallbackHandler({
     isSupabaseConfigured: configured,
@@ -63,6 +67,7 @@ test("auth callback rejects missing/unsafe redirects and suppresses provider dia
 test("auth callback returns the existing configuration-safe redirect", async () => {
   const response = await createAuthCallbackHandler({ isSupabaseConfigured: () => false })(callbackRequest("?code=valid"));
   assert.equal(location(response), "/login?error=configuration");
+  assert.equal(response.headers.get("cache-control"), "private, no-store");
 });
 
 test("getAuthorization distinguishes sessions, authorization records, and infrastructure failures", async () => {

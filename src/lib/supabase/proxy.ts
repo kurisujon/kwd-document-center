@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { getSupabaseEnv, isSupabaseConfigured } from "./env";
+import { logOperationalFailure } from "../observability/log";
 
 export async function updateSession(request: NextRequest, dependencies: {
   isSupabaseConfigured?: () => boolean;
@@ -28,6 +29,7 @@ export async function updateSession(request: NextRequest, dependencies: {
     await supabase.auth.getUser();
     return response;
   } catch {
+    logOperationalFailure({ operation: "auth.session_refresh", outcome: "failure", category: "SESSION_REFRESH_FAILED", status: 503 });
     // Protected routes independently call getAuthorization(), which fails closed.
     // Returning a cookie-neutral pass-through avoids redirect loops and stale auth state.
     return NextResponse.next({ request });

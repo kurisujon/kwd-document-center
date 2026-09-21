@@ -12,6 +12,7 @@ import {
   matchesDriveOAuthState,
 } from "./drive-oauth";
 import { ensureRootDriveFolder } from "./drive-root";
+import { logOperationalFailure } from "../observability/log";
 
 type AuthorizationDependency = () => Promise<AuthorizationResult>;
 type ExchangeDependency = (code: string, redirectUri: string) => ReturnType<typeof exchangeDriveOAuthCode>;
@@ -63,6 +64,7 @@ export function createDriveAuthorizeHandler(dependencies: { getAuthorization?: A
       });
       return response;
     } catch {
+      logOperationalFailure({ operation: "drive.oauth.authorize", outcome: "failure", category: "DRIVE_OAUTH_CONFIGURATION_FAILED", status: 503 });
       return protectSetupResponse(NextResponse.json({ error: { code: "CONFIGURATION_ERROR", message: "Drive OAuth is not configured." } }, { status: 503 }));
     }
   };
@@ -110,6 +112,7 @@ export function createDriveCallbackHandler(dependencies: { getAuthorization?: Au
       ));
       return clearStateCookie(response);
     } catch {
+      logOperationalFailure({ operation: "drive.oauth.callback", outcome: "failure", category: "DRIVE_OAUTH_SETUP_FAILED", status: 502 });
       return responseForError("Drive OAuth setup could not be completed. Please retry.", 502);
     }
   };

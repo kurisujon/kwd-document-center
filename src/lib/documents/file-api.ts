@@ -8,9 +8,11 @@ import { UploadValidationError, validateAdminUploadForm } from "./upload-validat
 import type { UploadResult, ValidatedAdminUpload } from "./upload-types";
 import type { AuthorizedUser } from "../auth/types";
 import { isSameOrigin } from "../http/origin";
+import { protectedJson, protectResponse } from "../http/response";
+import { logOperationalFailure } from "../observability/log";
 
 function jsonError(code: string, message: string, status: number, field?: string) {
-  return Response.json({ error: { code, message, ...(field ? { field } : {}) } }, { status });
+  return protectedJson({ error: { code, message, ...(field ? { field } : {}) } }, status);
 }
 
 function authorizationError(authorization: Exclude<AuthorizationResult, { kind: "authorized" }>) {
@@ -18,10 +20,12 @@ function authorizationError(authorization: Exclude<AuthorizationResult, { kind: 
   return jsonError("FORBIDDEN", "You are not authorized to perform this operation.", 403);
 }
 
-function driveError(error: unknown) {
+function driveError(error: unknown, resourceId?: string) {
   if (error instanceof DriveServiceError && (error.kind === "NOT_FOUND" || error.kind === "INVALID_ID")) {
+    logOperationalFailure({ operation: "documents.drive", outcome: "failure", category: "DRIVE_FILE_NOT_FOUND", status: 404, ...(resourceId ? { resourceId } : {}) });
     return jsonError("NOT_FOUND", "The document file is unavailable in Google Drive.", 404);
   }
+  logOperationalFailure({ operation: "documents.drive", outcome: "failure", category: "DRIVE_OPERATION_FAILED", status: 503, ...(resourceId ? { resourceId } : {}) });
   return jsonError("DRIVE_ERROR", "The document file is temporarily unavailable.", 503);
 }
 
@@ -45,9 +49,13 @@ export function createUploadDocumentHandler(dependencies: {
 
     try {
       const result = await dependencies.uploadDocument({ upload, user: authorization.user });
-      return Response.json({ document: result.document, reused: !result.created }, { status: result.created ? 201 : 200 });
+      return protectedJson({ document: result.document, reused: !result.created }, result.created ? 201 : 200);
     } catch (error) {
-      if (error instanceof DocumentUploadError) return jsonError(error.code, error.message, error.status);
+      if (error instanceof DocumentUploadError) {
+        if (error.status >= 500) logOperationalFailure({ operation: "documents.upload", outcome: "failure", category: error.code, status: error.status });
+        return jsonError(error.code, error.message, error.status);
+      }
+      logOperationalFailure({ operation: "documents.upload", outcome: "failure", category: "UNEXPECTED_UPLOAD_FAILURE", status: 500 });
       return jsonError("REGISTRY_ERROR", "The document upload could not be completed.", 500);
     }
   };
@@ -72,6 +80,7 @@ async function authorizedDocument(dependencies: FileApiDependencies, id: string)
     }
     return { document, driveFileId: document.drive_file_id };
   } catch {
+    logOperationalFailure({ operation: "documents.file_lookup", outcome: "failure", category: "REGISTRY_READ_FAILED", status: 500, resourceId: id });
     return { response: jsonError("REGISTRY_ERROR", "Document details are temporarily unavailable.", 500) };
   }
 }
@@ -83,9 +92,12 @@ export function createOpenDocumentHandler(dependencies: FileApiDependencies) {
     if ("response" in lookup) return lookup.response;
     try {
       await dependencies.drive.getMetadata(lookup.driveFileId);
-      return Response.redirect(`https://drive.google.com/file/d/${encodeURIComponent(lookup.driveFileId)}/view`, 302);
+      return protectResponse(new Response(null, {
+        status: 302,
+        headers: { Location: `https://drive.google.com/file/d/${encodeURIComponent(lookup.driveFileId)}/view` },
+      }));
     } catch (error) {
-      return driveError(error);
+      return driveError(error, lookup.driveFileId);
     }
   };
 }
@@ -109,9 +121,9 @@ export function createDownloadDocumentHandler(dependencies: FileApiDependencies)
         "X-Content-Type-Options": "nosniff",
       });
       if (file.size !== null && Number.isFinite(file.size)) headers.set("Content-Length", String(file.size));
-      return new Response(Readable.toWeb(file.stream) as ReadableStream, { headers });
+      return protectResponse(new Response(Readable.toWeb(file.stream) as ReadableStream, { headers }));
     } catch (error) {
-      return driveError(error);
+      return driveError(error, lookup.driveFileId);
     }
   };
 }

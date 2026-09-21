@@ -8,6 +8,12 @@
 - **Phase 2 Document Registry**: Supabase/PostgreSQL
 - **Google Sheets**: Not used by the Phase 3 Admin implementation
 
+### Node.js runtime [CONFIRMED PHASE 6]
+
+- Local development and CI use `.nvmrc` (`22.22.2`).
+- Production deployments must use Node `22.x`.
+- `package.json` and `package-lock.json` declare the same `22.x` engine contract.
+
 ## 2. Vercel Considerations [PROPOSED]
 
 ### Serverless Function Limits

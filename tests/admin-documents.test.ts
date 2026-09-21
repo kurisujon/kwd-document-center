@@ -70,7 +70,10 @@ test("Admin upload API enforces authentication, active authorization, and Staff 
       getAuthorization: async () => authorization as AuthorizationResult,
       uploadDocument: async () => ({ document, created: true }),
     });
-    assert.equal((await handler(uploadRequest())).status, expected);
+    const response = await handler(uploadRequest());
+    assert.equal(response.status, expected);
+    assert.equal(response.headers.get("cache-control"), "private, no-store");
+    assert.equal(response.headers.get("x-content-type-options"), "nosniff");
   }
 });
 
@@ -89,6 +92,8 @@ test("Admin upload validation rejects unsupported, oversized, invalid, and malfo
   const previousLimit = process.env.ADMIN_UPLOAD_MAX_BYTES;
   process.env.ADMIN_UPLOAD_MAX_BYTES = "4";
   await assert.rejects(() => validateAdminUploadForm(uploadForm({}, pdfFile("large.pdf", 8))));
+  process.env.ADMIN_UPLOAD_MAX_BYTES = "9007199254740992";
+  await assert.rejects(() => validateAdminUploadForm(uploadForm()));
   if (previousLimit === undefined) delete process.env.ADMIN_UPLOAD_MAX_BYTES; else process.env.ADMIN_UPLOAD_MAX_BYTES = previousLimit;
 
   await assert.rejects(() => validateAdminUploadForm(uploadForm({ subject: "" })));
