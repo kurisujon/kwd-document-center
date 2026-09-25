@@ -29,14 +29,18 @@ test("auth callback preserves safe internal redirects and writes only server-man
   const handler = createAuthCallbackHandler({
     isSupabaseConfigured: () => true,
     exchangeCodeForSession: async (_code, _request, response) => {
-      response.cookies.set("sb-session", "server-managed", { httpOnly: true });
+      response.headers.append("Set-Cookie", "sb-access=synthetic-access; Path=/; HttpOnly");
+      response.headers.append("Set-Cookie", "sb-refresh=synthetic-refresh; Path=/; HttpOnly");
       return { error: null };
     },
   });
   const response = await handler(callbackRequest("?code=valid&next=/admin/users"));
   assert.equal(response.status, 307);
   assert.equal(location(response), "/admin/users");
-  assert.equal(response.cookies.get("sb-session")?.value, "server-managed");
+  assert.deepEqual(response.headers.getSetCookie(), [
+    "sb-access=synthetic-access; Path=/; HttpOnly",
+    "sb-refresh=synthetic-refresh; Path=/; HttpOnly",
+  ]);
   assert.equal(response.headers.get("cache-control"), "private, no-store");
   assert.equal(response.headers.get("referrer-policy"), "no-referrer");
   assert.equal(response.headers.get("x-content-type-options"), "nosniff");

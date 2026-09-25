@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { NextResponse } from "next/server";
 import { protectedHeaders, protectedJson, protectResponse } from "../src/lib/http/response.ts";
 import { logOperationalFailure } from "../src/lib/observability/log.ts";
 
@@ -23,9 +24,26 @@ test("protected responses prevent shared caching and content sniffing", async ()
   assert.equal(json.headers.get("cache-control"), "private, no-store");
   assert.equal(json.headers.get("x-content-type-options"), "nosniff");
 
-  const redirect = protectResponse(Response.redirect("https://example.test", 302), { noReferrer: true });
+  const redirect = protectResponse(NextResponse.redirect("https://example.test", 302), { noReferrer: true });
   assert.equal(redirect.headers.get("cache-control"), "private, no-store");
   assert.equal(redirect.headers.get("referrer-policy"), "no-referrer");
+});
+
+test("protectResponse preserves repeated Set-Cookie headers", () => {
+  const response = NextResponse.redirect("https://example.test/documents");
+  response.headers.append("Set-Cookie", "cookie-a=value-a; Path=/; HttpOnly");
+  response.headers.append("Set-Cookie", "cookie-b=value-b; Path=/; HttpOnly");
+
+  const protectedResponse = protectResponse(response, { noReferrer: true });
+
+  assert.deepEqual(protectedResponse.headers.getSetCookie(), [
+    "cookie-a=value-a; Path=/; HttpOnly",
+    "cookie-b=value-b; Path=/; HttpOnly",
+  ]);
+  assert.equal(protectedResponse.headers.get("cache-control"), "private, no-store");
+  assert.equal(protectedResponse.headers.get("x-content-type-options"), "nosniff");
+  assert.equal(protectedResponse.headers.get("referrer-policy"), "no-referrer");
+  assert.equal(protectedResponse.headers.get("location"), "https://example.test/documents");
 });
 
 test("operational logging accepts only categorized safe fields", async () => {
