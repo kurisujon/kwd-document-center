@@ -18,6 +18,14 @@ import { driveOAuthScope } from "../src/lib/google/drive-oauth.ts";
 const admin: AuthorizedUser = { id: "11111111-1111-4111-8111-111111111111", email: "admin@example.test", name: "Admin", role: "ADMIN", status: "ACTIVE" };
 const authorized: AuthorizationResult = { kind: "authorized", user: admin };
 const selectedIds = approvedFolders.map(({ id }) => id).join(",");
+const expectedFolderIds = [
+  "192ocZvz5MS87jlJ5CiU_Ged3btMnT55_", "1P2hdxEHHJ_a30jgctwIGgDZGM2DtVi8f", "1LyJCNs26Z0oLRIhWSVPvC6KmXd0GSuaq",
+  "1yT5VGngCc_PlFJcFTKohT7elEYeCWlBh", "13IXn9PuW8RLnjEhriII9WbtCnU6PkZO0", "1S6AHWn1Fm-h96LP3kPmDPZUWX2Oe70Qa",
+  "1kxB-XjOyjTezYDUxgFbsq8LYaNC3OOTU", "1YLFO7oq4mJB9KA9du5Jll-hav2d14UFM", "1T4YtlO64H7MVGp_SfazS39XUvg0fPPDn",
+  "1N7MLqNfyoAyYsEVENC-G0jTG2qfG8rCE", "1tOl0lIoOtS7-b0H5C58BeEFw4rnQfsPk", "1mDjbYwlBCTSfgB4zDgGl2MkS8ukWnTG7",
+  "13SmHoms2o9iMOHKW9YW3uSHHJVphJJU4", "17uX3k-c3jsshzmt2NcVJZmLTjPpma0jf", "17LIek68dapTXePXTMy36bwO5lNCWdtzF",
+  "1fvXkXnConVoiU0ERGQJxlWgxHctSAmse", "1pkPwtH5erTokHNP-HOW_ITuIhXhMev5J", "1ZlnOo-UJA6MHWq0yZPfaHbcM855AkP0O",
+];
 const freshExchange = () => ({ refreshToken: "fresh-recovery-token", credentials: { access_token: "new-access-token", refresh_token: "fresh-recovery-token", expiry_date: 1_800_000_000_000 } });
 const verifiedFolders = async () => ({ kind: "valid" as const });
 
@@ -53,7 +61,7 @@ test("Drive recovery authorize requires an ACTIVE ADMIN and never starts Picker 
   }
 });
 
-test("Drive recovery authorization URL uses only drive.file and the fixed 17-folder Picker set", async () => {
+test("Drive recovery authorization URL uses only drive.file and the fixed 18-folder Picker set", async () => {
   const previous = { clientId: process.env.GOOGLE_DRIVE_CLIENT_ID, clientSecret: process.env.GOOGLE_DRIVE_CLIENT_SECRET };
   process.env.GOOGLE_DRIVE_CLIENT_ID = "drive-storage-client";
   process.env.GOOGLE_DRIVE_CLIENT_SECRET = "drive-storage-secret";
@@ -69,7 +77,14 @@ test("Drive recovery authorization URL uses only drive.file and the fixed 17-fol
     assert.equal(url.searchParams.get("trigger_onepick"), "true");
     assert.equal(url.searchParams.get("allow_multiple"), "true");
     assert.equal(url.searchParams.get("allow_folder_selection"), "true");
-    assert.deepEqual(url.searchParams.get("file_ids")?.split(","), approvedFolders.map(({ id }) => id));
+    assert.equal(approvedFolders.length, 18);
+    assert.deepEqual(approvedFolders.map(({ id }) => id), expectedFolderIds);
+    assert.deepEqual(url.searchParams.get("file_ids")?.split(","), expectedFolderIds);
+    assert.deepEqual(approvedFolders.slice(2).map(({ id }) => id), expectedFolderIds.slice(2));
+    assert.deepEqual(approvedFolders.slice(0, 2).map(({ label, id }) => ({ label, id })), [
+      { label: "KWD DOCUMENT CENTER", id: "192ocZvz5MS87jlJ5CiU_Ged3btMnT55_" },
+      { label: "ADMIN DOCUMENTS", id: "1P2hdxEHHJ_a30jgctwIGgDZGM2DtVi8f" },
+    ]);
     assert.equal(url.searchParams.get("file_ids")?.includes("attacker-controlled-id"), false);
     assert.equal(new URL(second).searchParams.get("state") === url.searchParams.get("state"), false);
   } finally {
@@ -181,7 +196,7 @@ test("complete callback IDs never cause a handoff until all server-side checks p
   assert.doesNotMatch(body, /fresh-recovery-token|new-access-token|secret-code/i);
 });
 
-test("server-side verification checks exactly all 17 fixed folder IDs with metadata reads", async () => {
+test("server-side verification checks exactly all 18 fixed folder IDs with metadata reads", async () => {
   const calls: string[] = [];
   const result = await verifyApprovedFolderAccess(freshExchange().credentials, {
     getMetadata: async (id) => {
@@ -190,8 +205,8 @@ test("server-side verification checks exactly all 17 fixed folder IDs with metad
     },
   });
   assert.deepEqual(result, { kind: "valid" });
-  assert.deepEqual(calls, approvedFolders.map(({ id }) => id));
-  assert.equal(calls.length, 17);
+  assert.deepEqual(calls, expectedFolderIds);
+  assert.equal(calls.length, 18);
 });
 
 test("server-side folder verification rejects access, transient, malformed, and partial results without a handoff", async () => {
@@ -215,13 +230,20 @@ test("server-side folder verification rejects access, transient, malformed, and 
     assert.doesNotMatch(body, /fresh-recovery-token|new-access-token|private provider details|secret-code/i, scenario.name);
   }
 
-  const sixteenthId = approvedFolders.at(-1)!.id;
+  const adminDocuments = approvedFolders[1];
   const partial = await verifyApprovedFolderAccess(freshExchange().credentials, {
-    getMetadata: async (id) => id === sixteenthId
+    getMetadata: async (id) => id === adminDocuments.id
       ? { id, mimeType: "application/vnd.google-apps.folder", trashed: true }
       : { id, mimeType: "application/vnd.google-apps.folder", trashed: false },
   });
-  assert.deepEqual(partial, { kind: "failed", folders: [approvedFolders.at(-1)!.label] });
+  assert.deepEqual(partial, { kind: "failed", folders: [adminDocuments.label] });
+  const partialResponse = await createDriveRecoveryCallbackHandler({
+    getAuthorization: async () => authorized,
+    exchangeCode: async () => freshExchange(),
+    verifyFolders: async () => partial,
+  })(callbackRequest(validQuery()));
+  assert.equal(partialResponse.status, 502);
+  assert.doesNotMatch(await partialResponse.text(), /fresh-recovery-token|new-access-token/i);
 });
 
 test("Drive recovery contains no root provisioning or Drive write path", async () => {

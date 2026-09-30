@@ -5,7 +5,7 @@ import { DriveServiceError, type DriveFileMetadata, type DriveService } from "./
 const folderMimeType = "application/vnd.google-apps.folder";
 
 const verificationTargets = [
-  { key: "production-root", expectedId: "192ocZvz5MS87jlJ5CiU_Ged3btMnT55_", expectedName: "KWD Document Center" },
+  { key: "production-root", expectedId: "192ocZvz5MS87jlJ5CiU_Ged3btMnT55_", expectedName: "KWD DOCUMENT CENTER" },
   { key: "admin-documents", expectedId: "1P2hdxEHHJ_a30jgctwIGgDZGM2DtVi8f", expectedName: "ADMIN DOCUMENTS" },
   { key: "admin-2026-bac-agendas", expectedId: "1yT5VGngCc_PlFJcFTKohT7elEYeCWlBh", expectedName: "AGENDA" },
   { key: "admin-2026-attendance-dtr-summary", expectedId: "1T4YtlO64H7MVGp_SfazS39XUvg0fPPDn", expectedName: "DTR SUMMARY" },

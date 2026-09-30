@@ -10,7 +10,8 @@ export const driveRecoveryStateMaxAgeSeconds = 10 * 60;
 export const driveRecoveryRedirectUri = "https://kwd-document-center.vercel.app/api/admin/drive-recovery/callback";
 
 const approvedFolders = [
-  { key: "production-root", label: "KWD Document Center", id: "192ocZvz5MS87jlJ5CiU_Ged3btMnT55_" },
+  { key: "production-root", label: "KWD DOCUMENT CENTER", id: "192ocZvz5MS87jlJ5CiU_Ged3btMnT55_" },
+  { key: "admin-documents", label: "ADMIN DOCUMENTS", id: "1P2hdxEHHJ_a30jgctwIGgDZGM2DtVi8f" },
   { key: "admin-2026-bacti-test", label: "ADMIN|2026|BACTI TEST", id: "1LyJCNs26Z0oLRIhWSVPvC6KmXd0GSuaq" },
   { key: "admin-2026-bac-agendas", label: "ADMIN|2026|BAC|AGENDAS", id: "1yT5VGngCc_PlFJcFTKohT7elEYeCWlBh" },
   { key: "admin-2026-bac-meeting-minutes", label: "ADMIN|2026|BAC|MEETING MINUTES", id: "13IXn9PuW8RLnjEhriII9WbtCnU6PkZO0" },

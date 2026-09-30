@@ -13,7 +13,7 @@ const admin: AuthorizedUser = {
 };
 
 const targetMetadata = new Map([
-  ["192ocZvz5MS87jlJ5CiU_Ged3btMnT55_", { name: "KWD Document Center" }],
+  ["192ocZvz5MS87jlJ5CiU_Ged3btMnT55_", { name: "KWD DOCUMENT CENTER" }],
   ["1P2hdxEHHJ_a30jgctwIGgDZGM2DtVi8f", { name: "ADMIN DOCUMENTS" }],
   ["1yT5VGngCc_PlFJcFTKohT7elEYeCWlBh", { name: "AGENDA" }],
   ["1T4YtlO64H7MVGp_SfazS39XUvg0fPPDn", { name: "DTR SUMMARY" }],
@@ -81,6 +81,7 @@ test("ACTIVE ADMIN verification checks exactly the six fixed IDs using getMetada
   assert.equal(response.status, 200);
   assert.equal(body.ok, true);
   assert.equal(body.checks.length, 6);
+  assert.equal(targetMetadata.get("192ocZvz5MS87jlJ5CiU_Ged3btMnT55_")?.name, "KWD DOCUMENT CENTER");
   assert.deepEqual(run.calls, [...targetMetadata.keys()]);
   assert.deepEqual(body.checks.map((check) => check.expectedId), [...targetMetadata.keys()]);
 });
