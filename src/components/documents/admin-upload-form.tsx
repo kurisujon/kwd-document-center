@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { adminSubcategories, categoryUsesYear, type AdminCategory } from "@/lib/documents/admin-categories";
+import { adminUploadAccept } from "@/lib/documents/upload-formats";
 
 type UploadResponse = {
   document?: { document_id: string; subject: string };
@@ -60,7 +61,7 @@ export function AdminUploadForm({ categories }: { categories: readonly AdminCate
       <label className="field">Document date<input name="document_date" type="date" required /></label>
       <label className="field">Subject<input name="subject" maxLength={500} required /></label>
       <label className="field">Persons involved <span className="optional">Optional</span><textarea name="persons_involved" maxLength={500} rows={3} /></label>
-      <label className="field file-field">Document file<input name="file" type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg" required /><span>PDF, Word, Excel, PNG, or JPEG; maximum 4 MiB unless deployment configuration specifies otherwise.</span></label>
+      <label className="field file-field">Document file<input name="file" type="file" accept={adminUploadAccept} required /><span>Accepted files: PDF, Word, Excel, CSV, PowerPoint, JPG, PNG, and TXT. Maximum 4 MiB unless deployment configuration specifies otherwise.</span></label>
       {error && <div className="form-error" role="alert">{error}</div>}
       {documentId && <div className="form-success" role="status">Upload complete. <Link href={`/documents/${documentId}`}>View the document</Link>.</div>}
       <div className="form-actions"><button className="button button-primary" type="submit" disabled={submitting}>{submitting ? "Uploading…" : "Upload document"}</button></div>

@@ -5,6 +5,7 @@ import test from "node:test";
 import { createDownloadDocumentHandler, createOpenDocumentHandler, createUploadDocumentHandler } from "../src/lib/documents/file-api.ts";
 import { DocumentUploadError, uploadAdminDocument } from "../src/lib/documents/upload-service.ts";
 import { validateAdminUploadForm } from "../src/lib/documents/upload-validation.ts";
+import { adminUploadAccept, adminUploadFormats, type AdminUploadExtension } from "../src/lib/documents/upload-formats.ts";
 import { classifyDriveError, DriveServiceError } from "../src/lib/google/drive-types.ts";
 import { isDocumentId } from "../src/lib/documents/query.ts";
 import type { AuthorizationResult, AuthorizedUser } from "../src/lib/auth/types.ts";
@@ -36,6 +37,47 @@ const authorized = (user: AuthorizedUser = staff): AuthorizationResult => ({ kin
 
 function pdfFile(name = "water-quality.pdf", sizePadding = 0) {
   return new File([new Uint8Array([0x25, 0x50, 0x44, 0x46]), new Uint8Array(sizePadding)], name, { type: "application/pdf" });
+}
+
+function bytes(...parts: Array<Uint8Array | number[]>): Uint8Array {
+  const length = parts.reduce((total, part) => total + part.length, 0);
+  const result = new Uint8Array(length);
+  let offset = 0;
+  for (const part of parts) { result.set(part, offset); offset += part.length; }
+  return result;
+}
+
+function utf16Le(value: string): Uint8Array {
+  const result = new Uint8Array(value.length * 2);
+  for (let index = 0; index < value.length; index += 1) {
+    result[index * 2] = value.charCodeAt(index) & 0xff;
+    result[index * 2 + 1] = value.charCodeAt(index) >> 8;
+  }
+  return result;
+}
+
+const oleSignature = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1];
+const zipSignature = [0x50, 0x4b, 0x03, 0x04];
+const encoder = new TextEncoder();
+
+const approvedFileCases = [
+  { extension: ".pdf", mimeType: "application/pdf", bytes: new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x0a]) },
+  { extension: ".doc", mimeType: "application/msword", bytes: bytes(oleSignature, utf16Le("WordDocument")) },
+  { extension: ".docx", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", bytes: bytes(zipSignature, encoder.encode("word/document.xml")) },
+  { extension: ".xls", mimeType: "application/vnd.ms-excel", bytes: bytes(oleSignature, utf16Le("Workbook")) },
+  { extension: ".xlsx", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", bytes: bytes(zipSignature, encoder.encode("xl/workbook.xml")) },
+  { extension: ".csv", mimeType: "text/csv", bytes: encoder.encode("name,date\nKWD,2026-09-30\n") },
+  { extension: ".ppt", mimeType: "application/vnd.ms-powerpoint", bytes: bytes(oleSignature, utf16Le("PowerPoint Document")) },
+  { extension: ".pptx", mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation", bytes: bytes(zipSignature, encoder.encode("ppt/presentation.xml")) },
+  { extension: ".jpg", mimeType: "image/jpeg", bytes: new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]) },
+  { extension: ".jpeg", mimeType: "image/jpeg", bytes: new Uint8Array([0xff, 0xd8, 0xff, 0xe1, 0x00, 0x10]) },
+  { extension: ".png", mimeType: "image/png", bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01]) },
+  { extension: ".txt", mimeType: "text/plain", bytes: encoder.encode("KWD memorandum text\n") },
+] as const satisfies ReadonlyArray<{ extension: AdminUploadExtension; mimeType: string; bytes: Uint8Array }>;
+
+function approvedFile(extension: AdminUploadExtension): File {
+  const fixture = approvedFileCases.find((candidate) => candidate.extension === extension)!;
+  return new File([fixture.bytes], `source${extension}`, { type: fixture.mimeType });
 }
 
 function uploadForm(overrides: Record<string, string> = {}, file: File = pdfFile()) {
@@ -85,8 +127,13 @@ test("Admin upload API rejects cross-origin mutation requests", async () => {
 });
 
 test("Admin upload validation rejects unsupported, oversized, invalid, and malformed submissions", async () => {
-  await assert.rejects(() => validateAdminUploadForm(uploadForm({}, new File(["plain"], "notes.txt", { type: "text/plain" }))));
+  await assert.rejects(() => validateAdminUploadForm(uploadForm({}, new File(["MZ"], "malware.exe", { type: "application/x-msdownload" }))));
+  await assert.rejects(() => validateAdminUploadForm(uploadForm({}, new File([zipSignature], "archive.zip", { type: "application/zip" }))));
   await assert.rejects(() => validateAdminUploadForm(uploadForm({}, new File(["not a pdf"], "fake.pdf", { type: "application/pdf" }))));
+  await assert.rejects(() => validateAdminUploadForm(uploadForm({}, new File([approvedFileCases[0].bytes], "mismatch.pdf", { type: "image/png" }))));
+  await assert.rejects(() => validateAdminUploadForm(uploadForm({}, new File([approvedFileCases[4].bytes], "renamed.docx", { type: "application/octet-stream" }))));
+  await assert.rejects(() => validateAdminUploadForm(uploadForm({}, new File([new Uint8Array([0x4d, 0x5a, 0x00, 0x01])], "binary.txt", { type: "text/plain" }))));
+  await assert.rejects(() => validateAdminUploadForm(uploadForm({}, new File([], "empty.txt", { type: "text/plain" }))));
   await assert.rejects(() => validateAdminUploadForm(uploadForm({}, pdfFile("unsafe\u0000.pdf"))));
 
   const previousLimit = process.env.ADMIN_UPLOAD_MAX_BYTES;
@@ -99,13 +146,60 @@ test("Admin upload validation rejects unsupported, oversized, invalid, and malfo
   await assert.rejects(() => validateAdminUploadForm(uploadForm({ subject: "" })));
   await assert.rejects(() => validateAdminUploadForm(uploadForm({ document_type: "ACCOUNTING" })));
   await assert.rejects(() => validateAdminUploadForm(uploadForm({ filing_year: "" })));
+  const missingFile = uploadForm();
+  missingFile.delete("file");
+  await assert.rejects(() => validateAdminUploadForm(missingFile));
 });
 
-test("valid Admin files and structured metadata are normalized server-side", async () => {
-  const result = await validateAdminUploadForm(uploadForm());
-  assert.equal(result.file.mimeType, "application/pdf");
-  assert.equal(result.metadata.document_type, "BACTI TEST");
-  assert.equal(result.metadata.filing_year, 2026);
+test("upload API returns a safe 400 for unsupported and mismatched file submissions", async () => {
+  const handler = createUploadDocumentHandler({ getAuthorization: async () => authorized(), uploadDocument: async () => { throw new Error("must not upload"); } });
+  for (const file of [
+    new File(["MZ"], "malware.exe", { type: "application/x-msdownload" }),
+    new File([approvedFileCases[0].bytes], "mismatch.pdf", { type: "image/png" }),
+  ]) {
+    const response = await handler(uploadRequest(uploadForm({}, file)));
+    assert.equal(response.status, 400);
+    const body = await response.json() as { error: { code: string; field?: string; message: string } };
+    assert.equal(body.error.code, "VALIDATION_ERROR");
+    assert.equal(body.error.field, "file");
+    assert.doesNotMatch(body.error.message, /stack|provider|credential/i);
+  }
+});
+
+test("all approved Admin file formats validate with canonical MIME, extension, and unchanged bytes", async () => {
+  assert.equal(Object.keys(adminUploadFormats).length, 12);
+  for (const fixture of approvedFileCases) {
+    const result = await validateAdminUploadForm(uploadForm({}, approvedFile(fixture.extension)));
+    assert.equal(result.file.mimeType, fixture.mimeType, fixture.extension);
+    assert.equal(result.file.name, `source${fixture.extension}`, fixture.extension);
+    assert.deepEqual(result.file.bytes, fixture.bytes, fixture.extension);
+    assert.equal(result.metadata.document_type, "BACTI TEST");
+    assert.equal(result.metadata.filing_year, 2026);
+  }
+  const octetStreamPdf = new File([approvedFileCases[0].bytes], "scanner.pdf", { type: "application/octet-stream" });
+  assert.equal((await validateAdminUploadForm(uploadForm({}, octetStreamPdf))).file.mimeType, "application/pdf");
+});
+
+test("CSV accepts the explicit Windows MIME variation but remains text/csv internally", async () => {
+  const csv = approvedFileCases.find(({ extension }) => extension === ".csv")!;
+  const xls = approvedFileCases.find(({ extension }) => extension === ".xls")!;
+  const windowsCsv = new File([csv.bytes], "windows.csv", { type: "application/vnd.ms-excel" });
+  const validated = await validateAdminUploadForm(uploadForm({}, windowsCsv));
+  assert.equal(validated.file.mimeType, "text/csv");
+  assert.equal(validated.file.name, "windows.csv");
+
+  await assert.rejects(() => validateAdminUploadForm(uploadForm({}, new File([xls.bytes], "renamed.csv", { type: "application/vnd.ms-excel" }))));
+  await assert.rejects(() => validateAdminUploadForm(uploadForm({}, new File([csv.bytes], "renamed.xls", { type: "application/vnd.ms-excel" }))));
+  await assert.rejects(() => validateAdminUploadForm(uploadForm({}, new File([csv.bytes], "binary.csv", { type: "application/octet-stream" }))));
+  await assert.rejects(() => validateAdminUploadForm(uploadForm({}, new File([csv.bytes], "wrong.csv", { type: "application/json" }))));
+});
+
+test("the upload interface advertises the complete controlled file allowlist", async () => {
+  assert.equal(adminUploadAccept, ".pdf,.doc,.docx,.xls,.xlsx,.csv,.ppt,.pptx,.jpg,.jpeg,.png,.txt");
+  const source = await readFile(new URL("../src/components/documents/admin-upload-form.tsx", import.meta.url), "utf8");
+  assert.match(source, /adminUploadAccept/);
+  assert.match(source, /PDF, Word, Excel, CSV, PowerPoint, JPG, PNG, and TXT/);
+  assert.doesNotMatch(source, /PDF only/i);
 });
 
 function validUpload(key = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"): ValidatedAdminUpload {
@@ -242,6 +336,49 @@ test("a successful Drive upload is finalized into the Supabase registry", async 
   assert.equal(result.created, true);
   assert.equal(drive.uploads(), 1);
   assert.deepEqual(store.calls, ["find", "create", "claim", "persist", "pending", "finalize"]);
+}));
+
+test("upload forwards the canonical MIME, preserved extension, and original Office bytes to Drive", async () => withFolderMap(async () => {
+  const upload = await validateAdminUploadForm(uploadForm({}, approvedFile(".xlsx")));
+  const store = mockRepository();
+  let uploaded = false;
+  const drive = {
+    async generateFileId() { return document.drive_file_id!; },
+    async upload(input: { fileId: string; folderId: string; name: string; mimeType: string; bytes: Uint8Array }) {
+      uploaded = true;
+      assert.equal(input.folderId, "folderId_123456");
+      assert.equal(input.name, "source.xlsx");
+      assert.equal(input.mimeType, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      assert.deepEqual(input.bytes, approvedFileCases.find(({ extension }) => extension === ".xlsx")!.bytes);
+      return { id: input.fileId, name: input.name, mimeType: input.mimeType, trashed: false, webViewLink: document.drive_url! };
+    },
+    async getMetadata() { throw new Error("not used"); },
+    async download() { throw new Error("not used"); },
+  };
+  const result = await uploadAdminDocument({ upload, user: staff, repository: store.repository, drive });
+  assert.equal(result.created, true);
+  assert.equal(uploaded, true);
+  assert.equal(store.current()?.metadata_snapshot.file_name, "source.xlsx");
+  assert.equal(store.current()?.metadata_snapshot.file_type, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+}));
+
+test("upload canonicalizes the accepted Windows CSV MIME before forwarding it to Drive", async () => withFolderMap(async () => {
+  const csv = approvedFileCases.find(({ extension }) => extension === ".csv")!;
+  const upload = await validateAdminUploadForm(uploadForm({}, new File([csv.bytes], "windows.csv", { type: "application/vnd.ms-excel" })));
+  const store = mockRepository();
+  const drive = {
+    async generateFileId() { return document.drive_file_id!; },
+    async upload(input: { fileId: string; name: string; mimeType: string; bytes: Uint8Array }) {
+      assert.equal(input.name, "windows.csv");
+      assert.equal(input.mimeType, "text/csv");
+      assert.deepEqual(input.bytes, csv.bytes);
+      return { id: input.fileId, name: input.name, mimeType: input.mimeType, trashed: false, webViewLink: document.drive_url! };
+    },
+    async getMetadata() { throw new Error("not used"); },
+    async download() { throw new Error("not used"); },
+  };
+  await uploadAdminDocument({ upload, user: staff, repository: store.repository, drive });
+  assert.equal(store.current()?.metadata_snapshot.file_type, "text/csv");
 }));
 
 test("a pre-generated Drive ID is reserved in the attempt before media transfer", async () => withFolderMap(async () => {
@@ -482,6 +619,26 @@ test("Download streams through the server and provider failures stay safe", asyn
   const failed = await createDownloadDocumentHandler(fileDependencies(authorized(), document, mockDrive(new DriveServiceError("TRANSIENT")).service))(new Request("http://localhost"), context);
   assert.equal(failed.status, 503);
   assert.deepEqual(await failed.json(), { error: { code: "DRIVE_ERROR", message: "The document file is temporarily unavailable." } });
+});
+
+test("Download preserves MIME type, safe original filename, and binary bytes for approved formats", async () => {
+  const context = { params: Promise.resolve({ id: document.document_id }) };
+  for (const fixture of [
+    approvedFileCases.find(({ extension }) => extension === ".pptx")!,
+    approvedFileCases.find(({ extension }) => extension === ".jpg")!,
+  ]) {
+    const name = `download${fixture.extension}`;
+    const drive = {
+      ...mockDrive().service,
+      async download() {
+        return { id: document.drive_file_id!, name, mimeType: fixture.mimeType, trashed: false, webViewLink: document.drive_url!, stream: Readable.from([Buffer.from(fixture.bytes)]), size: fixture.bytes.length };
+      },
+    };
+    const response = await createDownloadDocumentHandler(fileDependencies(authorized(), document, drive))(new Request("http://localhost"), context);
+    assert.equal(response.headers.get("content-type"), fixture.mimeType);
+    assert.match(response.headers.get("content-disposition") ?? "", new RegExp(`filename="download\\${fixture.extension}"`));
+    assert.deepEqual(new Uint8Array(await response.arrayBuffer()), fixture.bytes);
+  }
 });
 
 // ---------------------------------------------------------------------------

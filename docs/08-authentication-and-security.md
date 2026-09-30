@@ -84,8 +84,8 @@ The existing Supabase Google authentication client remains unchanged. Its creden
 - Avoid logging secrets in production.
 - Return standardized error responses. Never leak stack traces.
 
-## 8. Upload Validation [PROPOSED]
-- **File types**: PDF, DOCX, DOC, XLSX, XLS, PNG, JPG (configurable allowlist)
+## 8. Upload Validation [CONFIRMED]
+- **File types**: PDF, DOC/DOCX, XLS/XLSX, CSV, PPT/PPTX, JPG/JPEG, PNG, and TXT through an explicit server-side extension/MIME allowlist and content plausibility checks
 - **File size**: Maximum 4 MiB by default to remain below the documented Vercel request limit; adjustable through `ADMIN_UPLOAD_MAX_BYTES` only when the deployment supports it
 - **Metadata**: Validate required fields with Zod schemas server-side
 - **File name**: Sanitize to remove special characters before Drive upload

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { adminSubcategories, categoryUsesYear, isAdminCategory } from "./admin-categories";
+import { adminUploadFormats, type AdminUploadExtension } from "./upload-formats";
 import type { AdminDocumentMetadata, ValidatedAdminUpload } from "./upload-types";
 
 export const defaultAdminUploadMaxBytes = 4 * 1024 * 1024;
@@ -35,21 +36,32 @@ function startsWith(bytes: Uint8Array, signature: number[]): boolean {
   return signature.every((byte, index) => bytes[index] === byte);
 }
 
-function includesAscii(bytes: Uint8Array, value: string): boolean {
-  const expected = new TextEncoder().encode(value);
+function includesBytes(bytes: Uint8Array, expected: Uint8Array): boolean {
   return bytes.some((_, start) => expected.every((byte, offset) => bytes[start + offset] === byte));
 }
 
-const formats = {
-  ".pdf": { mimeType: "application/pdf", signatures: [[0x25, 0x50, 0x44, 0x46]] },
-  ".jpg": { mimeType: "image/jpeg", signatures: [[0xff, 0xd8, 0xff]] },
-  ".jpeg": { mimeType: "image/jpeg", signatures: [[0xff, 0xd8, 0xff]] },
-  ".png": { mimeType: "image/png", signatures: [[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]] },
-  ".docx": { mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", signatures: [[0x50, 0x4b, 0x03, 0x04], [0x50, 0x4b, 0x05, 0x06], [0x50, 0x4b, 0x07, 0x08]] },
-  ".xlsx": { mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", signatures: [[0x50, 0x4b, 0x03, 0x04], [0x50, 0x4b, 0x05, 0x06], [0x50, 0x4b, 0x07, 0x08]] },
-  ".doc": { mimeType: "application/msword", signatures: [[0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]] },
-  ".xls": { mimeType: "application/vnd.ms-excel", signatures: [[0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]] },
-} as const;
+function utf16Le(value: string): Uint8Array {
+  const bytes = new Uint8Array(value.length * 2);
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    bytes[index * 2] = code & 0xff;
+    bytes[index * 2 + 1] = code >> 8;
+  }
+  return bytes;
+}
+
+function isSafeUtf8Text(bytes: Uint8Array): boolean {
+  try {
+    const decoded = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    return !decoded.includes("\u0000")
+      && [...decoded].every((character) => {
+        const code = character.codePointAt(0) ?? 0;
+        return code >= 0x20 || character === "\t" || character === "\n" || character === "\r";
+      });
+  } catch {
+    return false;
+  }
+}
 
 function validateFileName(name: string): string {
   if (/[\u0000-\u001f\u007f]/.test(name)) {
@@ -69,21 +81,28 @@ async function validateFile(file: File) {
     throw new UploadValidationError("file", `The file must not exceed ${Math.floor(maxUploadBytes() / 1024 / 1024)} MiB.`);
   }
 
-  const extension = name.slice(name.lastIndexOf(".")).toLowerCase() as keyof typeof formats;
-  const format = formats[extension];
+  const extension = name.slice(name.lastIndexOf(".")).toLowerCase() as AdminUploadExtension;
+  const format = adminUploadFormats[extension];
   if (!format) throw new UploadValidationError("file", "This file type is not supported.");
 
   const bytes = new Uint8Array(await file.arrayBuffer());
-  if (!format.signatures.some((signature) => startsWith(bytes, [...signature]))) {
+  if (format.content !== "text" && !format.signatures.some((signature) => startsWith(bytes, [...signature]))) {
     throw new UploadValidationError("file", "The selected file does not match its file type.");
   }
-  if (extension === ".docx" && !includesAscii(bytes, "word/document.xml")) {
-    throw new UploadValidationError("file", "The selected file is not a valid Word document.");
+  if (format.content === "zip" && !format.markers.some((marker) => includesBytes(bytes, new TextEncoder().encode(marker)))) {
+    throw new UploadValidationError("file", "The selected Office file does not match its file type.");
   }
-  if (extension === ".xlsx" && !includesAscii(bytes, "xl/workbook.xml")) {
-    throw new UploadValidationError("file", "The selected file is not a valid Excel workbook.");
+  if (format.content === "ole" && !format.markers.some((marker) => includesBytes(bytes, utf16Le(marker)))) {
+    throw new UploadValidationError("file", "The selected Office file does not match its file type.");
   }
-  if (file.type && file.type !== "application/octet-stream" && file.type !== format.mimeType) {
+  if (format.content === "text" && !isSafeUtf8Text(bytes)) {
+    throw new UploadValidationError("file", "The selected text file contains invalid or binary content.");
+  }
+
+  const declaredMimeType = file.type.split(";", 1)[0].trim().toLowerCase();
+  const octetStreamAllowed = format.content !== "text" && declaredMimeType === "application/octet-stream";
+  const compatibleMimeType = "compatibleMimeTypes" in format && format.compatibleMimeTypes.some((mimeType) => mimeType === declaredMimeType);
+  if (declaredMimeType && declaredMimeType !== format.mimeType && !compatibleMimeType && !octetStreamAllowed) {
     throw new UploadValidationError("file", "The selected file has inconsistent type information.");
   }
   return { name, mimeType: format.mimeType, size: file.size, bytes };

@@ -43,7 +43,7 @@ Initial categories (requires review against existing trackers):
 
 ### Documents
 - What are the final document types and required metadata per type?
-- What file formats are allowed, and what is the maximum file size?
+- **[CONFIRMED]** Uploads allow PDF, DOC/DOCX, XLS/XLSX, CSV, PPT/PPTX, JPG/JPEG, PNG, and TXT through server-side extension, MIME, and content plausibility validation. The default maximum remains 4 MiB and can be changed only through the documented deployment configuration.
 - What is the duplicate policy?
 - Can users edit metadata, replace files, or delete records? Is versioning required?
 

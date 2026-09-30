@@ -35,7 +35,7 @@ Filename and filing subcategory are included in registry text search, so month-b
 
 ## Upload validation [CONFIRMED]
 
-The Node.js route validates metadata, extension, declared MIME type, file signature, non-empty content, and size. Supported formats are PDF, DOC/DOCX, XLS/XLSX, PNG, and JPG/JPEG. MP4 is excluded. This is format plausibility validation, not a complete parser or malware scanner for every document format.
+The Node.js route validates metadata, extension, declared MIME type, non-empty content, size, and file-format plausibility. Supported formats are PDF, DOC/DOCX, XLS/XLSX, CSV, PPT/PPTX, JPG/JPEG, PNG, and TXT. Binary formats use signatures plus format-specific markers where practical; CSV and TXT require valid non-binary UTF-8 text. Other formats are rejected by default. This is format plausibility validation, not a complete parser or malware scanner for every document format.
 
 The default maximum is 4 MiB (`4194304` bytes), resolving the earlier 4 MB versus 25 MB conflict in favor of the documented Vercel request-body constraint. `ADMIN_UPLOAD_MAX_BYTES` makes the limit explicit and configurable for a deployment that supports a different request size.
 
