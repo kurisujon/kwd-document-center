@@ -196,7 +196,7 @@ test("CSV accepts the explicit Windows MIME variation but remains text/csv inter
 
 test("the upload interface advertises the complete controlled file allowlist", async () => {
   assert.equal(adminUploadAccept, ".pdf,.doc,.docx,.xls,.xlsx,.csv,.ppt,.pptx,.jpg,.jpeg,.png,.txt");
-  const source = await readFile(new URL("../src/components/documents/admin-upload-form.tsx", import.meta.url), "utf8");
+  const source = await readFile(new URL("../src/components/documents/batch-upload-review.tsx", import.meta.url), "utf8");
   assert.match(source, /adminUploadAccept/);
   assert.match(source, /PDF, Word, Excel, CSV, PowerPoint, JPG, PNG, and TXT/);
   assert.doesNotMatch(source, /PDF only/i);

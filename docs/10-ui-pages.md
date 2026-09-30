@@ -42,7 +42,7 @@
 
 ### Upload Document Page
 - **Route**: `/documents/upload`
-- **Purpose**: Upload a new document and create its registry entry.
+- **Purpose**: Upload one or more documents and create independent registry entries.
 - **Access**: STAFF, ADMIN only.
 - **Content**:
   - Document type selector (required)
@@ -51,12 +51,15 @@
     - Document date
     - Subject
     - Persons involved
-  - File upload zone (drag & drop or file picker)
-  - File validation feedback (type, size)
-  - Submit button with loading state
-  - Success confirmation with link to the new document
+  - Native multi-file picker (maximum 25 files)
+  - Common destination/date/person defaults
+  - Per-file metadata review and editing
+  - Per-file file validation feedback (type, size)
+  - Bulk date/person/default actions for selected rows
+  - State-based upload progress, with at most three concurrent uploads
+  - Retry Failed without resubmitting completed rows
   - Error state with clear retry guidance
-- **Design**: Simple vertical form. No multi-step wizard.
+- **Design**: A compact review table in the existing upload page, not a separate batch route or a giant multipart form.
 
 ### Users Page (Admin Only)
 - **Route**: `/admin/users`

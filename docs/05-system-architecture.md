@@ -72,6 +72,9 @@ graph LR
 - Combine Drive and Registry data for document retrieval
 - Coordinate the Phase 7A deletion claim, Drive Trash operation, and registry
   finalization without holding a database transaction during the Drive call.
+- For Phase 7B, coordinate no server-side batch transaction: the browser
+  queues independent existing upload requests with bounded concurrency, and
+  every request retains the established upload-attempt state machine.
 
 ### Auth Service
 - Verify Supabase session

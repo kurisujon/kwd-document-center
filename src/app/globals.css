@@ -86,6 +86,27 @@ tbody tr:hover { background: #fafcff; }
 .file-unavailable { flex-basis: 100%; margin: 0; color: var(--color-error); }
 .upload-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.25rem 1rem; max-width: 52rem; padding: 1.5rem; border: 1px solid var(--color-border); background: var(--color-surface); }
 .upload-form .file-field, .upload-form .form-error, .upload-form .form-success, .upload-form .form-actions { grid-column: 1 / -1; }
+.batch-upload { display: grid; gap: 1.25rem; max-width: 100%; padding: 1.5rem; border: 1px solid var(--color-border); background: var(--color-surface); }
+.batch-upload .file-field { max-width: 52rem; }
+.batch-defaults { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; padding: 1rem; border: 1px solid var(--color-border); }
+.batch-defaults legend { padding: 0 .35rem; color: var(--color-text-secondary); font-size: .82rem; font-weight: 800; }
+.batch-actions { display: flex; flex-wrap: wrap; align-items: end; gap: .75rem; padding: 1rem; background: var(--color-surface-muted); }
+.batch-actions label { display: grid; gap: .3rem; color: var(--color-text-secondary); font-size: .78rem; font-weight: 700; }
+.batch-actions input:not([type="checkbox"]) { min-height: 2.4rem; padding: .4rem .5rem; border: 1px solid var(--color-border); border-radius: 4px; background: var(--color-surface); }
+.batch-summary { margin: 0; color: var(--color-text-secondary); font-weight: 700; }
+.batch-table { min-width: 75rem; }
+.batch-table td { vertical-align: top; }
+.batch-table .field { min-width: 10rem; margin-bottom: .6rem; }
+.batch-file-size { display: block; color: var(--color-text-muted); font-size: .78rem; }
+.batch-status { display: inline-flex; padding: .2rem .5rem; border: 1px solid currentColor; border-radius: 999px; font-size: .75rem; font-weight: 800; white-space: nowrap; }
+.batch-status-ready { color: var(--color-brand); background: #eff6ff; }
+.batch-status-uploading { color: var(--color-warning); background: var(--color-warning-surface); }
+.batch-status-uploaded { color: var(--color-success); background: var(--color-success-surface); }
+.batch-status-failed, .batch-status-invalid_file { color: var(--color-error); background: #fef2f2; }
+.batch-status-needs_metadata, .batch-status-queued { color: var(--color-warning); background: var(--color-warning-surface); }
+.batch-row-error { max-width: 15rem; margin: .5rem 0 0; color: var(--color-error); font-size: .8rem; }
+.batch-row-success { margin: .5rem 0 0; color: var(--color-success); font-size: .8rem; font-weight: 700; }
+.batch-submit-actions { display: flex; flex-wrap: wrap; gap: .75rem; }
 .file-field span, .optional { color: var(--color-text-muted); font-size: .78rem; font-weight: 400; }
 .form-success { padding: .75rem; border-left: 3px solid var(--color-success); background: var(--color-success-surface); color: #065f46; }
 .form-success a { font-weight: 700; text-decoration: underline; }
@@ -122,4 +143,4 @@ tbody tr:hover { background: #fafcff; }
 .button-danger:hover { background: var(--color-error-hover); }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 @media (max-width: 960px) { .search-panel { grid-template-columns: minmax(14rem, 1fr) 11rem 11rem; } }
-@media (max-width: 760px) { .app-shell { grid-template-columns: 1fr; } .sidebar { padding: .9rem 1rem; } .sidebar-subtitle, .sidebar-footer { display: none; } .nav-list { display: flex; overflow-x: auto; margin-top: .75rem; } .nav-link { white-space: nowrap; } .nav-divider { display: none; } .app-main { padding: 1.5rem 1rem; } .page-heading { display: grid; } .search-panel, .user-form { grid-template-columns: 1fr; } .pagination, .confirmation-panel { align-items: flex-start; flex-direction: column; } .document-detail dl, .upload-form { grid-template-columns: 1fr; } .users-table-wrap { margin-inline: -1rem; border-inline: 0; } }
+@media (max-width: 760px) { .app-shell { grid-template-columns: 1fr; } .sidebar { padding: .9rem 1rem; } .sidebar-subtitle, .sidebar-footer { display: none; } .nav-list { display: flex; overflow-x: auto; margin-top: .75rem; } .nav-link { white-space: nowrap; } .nav-divider { display: none; } .app-main { padding: 1.5rem 1rem; } .page-heading { display: grid; } .search-panel, .user-form, .batch-defaults { grid-template-columns: 1fr; } .pagination, .confirmation-panel { align-items: flex-start; flex-direction: column; } .document-detail dl, .upload-form { grid-template-columns: 1fr; } .users-table-wrap, .batch-table-wrap { margin-inline: -1rem; border-inline: 0; } }

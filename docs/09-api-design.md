@@ -117,6 +117,15 @@ POST /api/documents
   10. Return 201 with document data
 ```
 
+### Multi-file upload [CONFIRMED, PHASE 7B]
+
+The upload page may select up to 25 files, but it does not introduce a batch
+endpoint. The browser sends one existing `POST /api/documents` request per
+ready file, with a distinct idempotency key and no more than three active
+requests. Per-file validation, Drive upload, routing, upload-attempt recovery,
+and registry finalization remain server-authoritative. Partial success is
+expected: successful rows are not resent and only failed rows may be retried.
+
 ## 4. Input Validation [CONFIRMED]
 - All inputs validated with Zod schemas on the server.
 - File type validated against allowlist.

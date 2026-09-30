@@ -22,7 +22,7 @@ function text(formData: FormData, field: string): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function maxUploadBytes(): number {
+export function getAdminUploadMaxBytes(): number {
   const configured = process.env.ADMIN_UPLOAD_MAX_BYTES;
   if (!configured) return defaultAdminUploadMaxBytes;
   const parsed = Number(configured);
@@ -77,8 +77,8 @@ function validateFileName(name: string): string {
 async function validateFile(file: File) {
   const name = validateFileName(file.name);
   if (file.size < 1) throw new UploadValidationError("file", "Select a non-empty file.");
-  if (file.size > maxUploadBytes()) {
-    throw new UploadValidationError("file", `The file must not exceed ${Math.floor(maxUploadBytes() / 1024 / 1024)} MiB.`);
+  if (file.size > getAdminUploadMaxBytes()) {
+    throw new UploadValidationError("file", `The file must not exceed ${Math.floor(getAdminUploadMaxBytes() / 1024 / 1024)} MiB.`);
   }
 
   const extension = name.slice(name.lastIndexOf(".")).toLowerCase() as AdminUploadExtension;

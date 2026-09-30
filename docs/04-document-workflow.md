@@ -49,3 +49,17 @@ If Drive reports the stored file missing or already trashed, the record may be
 finalized as deleted. Provider failures retain a safe retryable failure state.
 Normal lists and file access exclude deleted records. A future restore feature
 can untrash the Drive file and return the record to `ACTIVE`.
+
+## 4. Multi-file upload workflow [CONFIRMED, PHASE 7B]
+
+STAFF and ADMIN users may select up to 25 approved files in one browser review
+session. The batch is browser-only: each file keeps its own metadata,
+idempotency key, result, and call to `POST /api/documents`. The application
+uploads at most three files concurrently and does not create a batch database
+record or send one giant multipart request.
+
+Common destination/date/person defaults are convenience values only; document
+number, subject, date, persons, and destination remain editable per file.
+Only ready rows upload. A failed file is retried with its original idempotency
+key without resubmitting successful rows. Folder upload and CSV metadata
+import remain future work.
