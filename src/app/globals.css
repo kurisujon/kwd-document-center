@@ -71,6 +71,7 @@ tbody tr:hover { background: #fafcff; }
 .sort-link { display: inline-flex; color: inherit; text-decoration: none; }
 .sort-link:hover { color: var(--color-brand); text-decoration: underline; }
 .table-action { color: var(--color-primary-hover); font-weight: 700; text-decoration: underline; }
+.table-action-danger { color: var(--color-error); }
 .filter-submit { white-space: nowrap; }
 .pagination { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 1rem; color: var(--color-text-secondary); font-size: .875rem; }
 .pagination > div { display: flex; gap: .5rem; }

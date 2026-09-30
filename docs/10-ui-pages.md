@@ -22,6 +22,12 @@
   - "Upload Document" action button (visible to STAFF and ADMIN only)
 - **Empty state**: "No documents found. Try adjusting your search or filters."
 - **Loading state**: Skeleton table rows.
+- **ADMIN deletion [PHASE 7A]**: Each document row includes a destructive
+  Delete action. Its keyboard-accessible confirmation identifies the document
+  and explains that the file moves to Google Drive Trash and disappears from
+  the normal list. The control is absent for STAFF and VIEWER users, remains
+  disabled while the request is in progress, and refreshes the list only after
+  server confirmation.
 
 ### Document Detail Page
 - **Route**: `/documents/[id]`

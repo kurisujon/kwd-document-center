@@ -62,6 +62,7 @@ Responsibilities:
 | Upload document | POST /api/documents | Upload file + create registry entry | Yes | STAFF |
 | Open file | GET /api/documents/:id/open | Validate Drive availability and redirect | Yes | VIEWER |
 | Download file | GET /api/documents/:id/download | Stream through the server | Yes | VIEWER |
+| Delete document | DELETE /api/documents/:id | Move the stored Drive file to Trash and soft-delete its registry record | Yes | ADMIN |
 
 ### Users (Admin Only) [CONFIRMED PHASE 4]
 | Operation | Method | Purpose | Auth Required | Min Role |
@@ -71,6 +72,18 @@ Responsibilities:
 | Update user | PATCH /api/admin/users/[id] | Update another user's role and/or status | Yes | ADMIN |
 
 User-management mutations accept JSON only, require same-origin requests, derive the actor ID from server authorization, and use the server-only `service_role` client to call the Phase 4 PostgreSQL RPC boundary. Browser input cannot select the actor. Email and name are not editable. Responses containing administration data use `Cache-Control: private, no-store`.
+
+### Document deletion [CONFIRMED, PHASE 7A]
+
+`DELETE /api/documents/:id` requires an authenticated ACTIVE ADMIN, a valid
+document UUID, and a same-origin request. The server derives the actor from
+the session and uses only the registry's stored `drive_file_id`; the request
+cannot select a Drive target. It coordinates a leased registry claim, Drive
+Trash, and token-guarded finalization. Repeated deletion of an already deleted
+record returns idempotent success. An active claim returns a safe conflict;
+provider and registry failures return safe retryable errors without provider
+diagnostics. Deleted documents return normal not-found behavior for detail,
+Open in Drive, and Download.
 
 ### Drive OAuth Setup (Admin Only)
 | Operation | Method | Purpose | Auth Required | Min Role |

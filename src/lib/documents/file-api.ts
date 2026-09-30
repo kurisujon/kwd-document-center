@@ -75,6 +75,7 @@ async function authorizedDocument(dependencies: FileApiDependencies, id: string)
   try {
     const document = await dependencies.getDocument(id);
     if (!document) return { response: jsonError("NOT_FOUND", "Document not found.", 404) };
+    if (document.deletion_state && document.deletion_state !== "ACTIVE") return { response: jsonError("NOT_FOUND", "Document not found.", 404) };
     if (!document.drive_file_id || !isDriveFileId(document.drive_file_id)) {
       return { response: jsonError("NOT_FOUND", "The document file is unavailable in Google Drive.", 404) };
     }

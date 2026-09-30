@@ -33,3 +33,19 @@ The system must not create a valid document record pointing to a nonexistent fil
 Users must receive friendly error states:
 - **Upload failure:** Tell the user it failed, if they can retry, and if the document might already exist.
 - Do not expose raw stack traces.
+
+## 3. Document Deletion Workflow [CONFIRMED, PHASE 7A]
+
+Only an authenticated, ACTIVE ADMIN may delete a document. Deletion is a
+controlled soft-delete workflow: the application claims a short-lived
+deletion operation, moves the registry's stored Google Drive file to Drive
+Trash, then marks the registry record deleted. It never permanently deletes a
+Drive file or hard-deletes the registry row.
+
+The registry keeps a separate deletion lifecycle (`ACTIVE`, `DELETE_PENDING`,
+`DELETE_FAILED`, `DELETED`) so archival status is not repurposed. A retry uses
+an operation token and lease; stale operations cannot finalize a newer claim.
+If Drive reports the stored file missing or already trashed, the record may be
+finalized as deleted. Provider failures retain a safe retryable failure state.
+Normal lists and file access exclude deleted records. A future restore feature
+can untrash the Drive file and return the record to `ACTIVE`.

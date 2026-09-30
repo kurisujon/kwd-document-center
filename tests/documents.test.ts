@@ -91,6 +91,7 @@ test("document list queries validate pagination", () => {
 test("the registry service handles nullable search fields", async () => {
   const request = {
     select: () => request,
+    eq: () => request,
     or: () => request,
     order: () => request,
     range: async () => ({ data: [{ ...document, document_number: null, persons_involved: null }], error: null, count: 1 }),
@@ -103,6 +104,7 @@ test("the registry service handles nullable search fields", async () => {
 test("the registry service preserves an empty page total", async () => {
   const request = {
     select: () => request,
+    eq: () => request,
     order: () => request,
     range: async () => ({ data: [], error: null, count: 50 }),
   };
@@ -197,7 +199,7 @@ test("the registry service retrieves filtered, sorted, paginated documents", asy
   const request = {
     select: () => { calls.push("select"); return request; },
     or: () => { calls.push("search"); return request; },
-    eq: () => { calls.push("type"); return request; },
+    eq: (_column: string, value: string) => { calls.push(value === "ACTIVE" ? "active" : "type"); return request; },
     gte: () => { calls.push("dateFrom"); return request; },
     lte: () => { calls.push("dateTo"); return request; },
     order: () => { calls.push("sort"); return request; },
@@ -217,7 +219,7 @@ test("the registry service retrieves filtered, sorted, paginated documents", asy
 
   assert.deepEqual(result.documents, [document]);
   assert.equal(result.total, 1);
-  assert.deepEqual(calls, ["select", "search", "type", "dateFrom", "dateTo", "sort", "page"]);
+  assert.deepEqual(calls, ["select", "active", "search", "type", "dateFrom", "dateTo", "sort", "page"]);
 });
 
 test("the registry service returns null for a missing document", async () => {

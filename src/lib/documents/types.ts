@@ -8,6 +8,7 @@ export const documentSortFields = [
 
 export type DocumentSortField = (typeof documentSortFields)[number];
 export type SortOrder = "asc" | "desc";
+export type DocumentDeletionState = "ACTIVE" | "DELETE_PENDING" | "DELETED" | "DELETE_FAILED";
 
 export interface DocumentRecord {
   document_id: string;
@@ -23,6 +24,7 @@ export interface DocumentRecord {
   filing_year: number | null;
   filing_subcategory: string | null;
   status: "ACTIVE" | "ARCHIVED";
+  deletion_state?: DocumentDeletionState;
   created_by: string | null;
   created_at: string;
   updated_at: string;

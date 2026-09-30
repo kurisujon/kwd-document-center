@@ -1,7 +1,8 @@
 import "server-only";
 import { Readable } from "node:stream";
 import { google, type drive_v3 } from "googleapis";
-import { classifyDriveError, DriveServiceError, isDriveFileId, type DriveFileMetadata, type DriveService } from "./drive-types";
+import { classifyDriveError, DriveServiceError, isDriveFileId, type DriveDeletionService, type DriveFileMetadata, type DriveService } from "./drive-types";
+import { trashDriveFile } from "./drive-deletion";
 import { createDriveOAuthClient, getDriveOAuthConfig } from "./drive-oauth";
 export { DriveServiceError, isDriveFileId } from "./drive-types";
 export type { DriveDownload, DriveFileMetadata, DriveService } from "./drive-types";
@@ -36,7 +37,7 @@ function isConflict(error: unknown): boolean {
   return candidate.code === 409 || candidate.response?.status === 409;
 }
 
-export function createDriveService(): DriveService {
+export function createDriveService(): DriveService & DriveDeletionService {
   let driveClient: drive_v3.Drive | undefined;
   function client() {
     if (!driveClient) {
@@ -60,6 +61,10 @@ export function createDriveService(): DriveService {
       if (metadata.trashed) throw new DriveServiceError("NOT_FOUND");
       return metadata;
     });
+  }
+
+  async function trash(fileId: string) {
+    return trashDriveFile(client().files, fileId);
   }
 
   async function recoverCreatedFile(fileId: string): Promise<DriveFileMetadata | null> {
@@ -129,6 +134,7 @@ export function createDriveService(): DriveService {
       }
     },
     getMetadata,
+    trash,
     async download(fileId) {
       const metadata = await getMetadata(fileId);
       return withTransientRetry(async () => {

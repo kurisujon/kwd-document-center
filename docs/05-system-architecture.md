@@ -56,6 +56,9 @@ graph LR
 - Retrieve file metadata from Drive
 - Construct Drive view/download URLs
 - Handle Drive API errors
+- For Phase 7A deletion, move only the registry-owned file to Drive Trash;
+  permanent deletion, folder changes, discovery lists, and permission writes
+  are not part of the deletion boundary.
 
 ### Google Sheets Service [OUT OF SCOPE]
 - No Phase 3 Admin implementation
@@ -67,6 +70,8 @@ graph LR
 - Handle idempotency (check upload_attempts table)
 - Handle failure recovery
 - Combine Drive and Registry data for document retrieval
+- Coordinate the Phase 7A deletion claim, Drive Trash operation, and registry
+  finalization without holding a database transaction during the Drive call.
 
 ### Auth Service
 - Verify Supabase session

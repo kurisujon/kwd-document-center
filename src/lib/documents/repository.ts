@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { DocumentListQuery, DocumentRecord, PaginatedDocuments } from "./types";
 
-export const documentColumns = "document_id, document_type, document_number, document_date, subject, persons_involved, drive_file_id, drive_url, file_name, file_type, filing_year, filing_subcategory, status, created_by, created_at, updated_at";
+export const documentColumns = "document_id, document_type, document_number, document_date, subject, persons_involved, drive_file_id, drive_url, file_name, file_type, filing_year, filing_subcategory, status, deletion_state, created_by, created_at, updated_at";
 
 function escapeLikeSearch(value: string): string {
   return value.replace(/[\\%_(),.]/g, "\\$&");
@@ -9,6 +9,7 @@ function escapeLikeSearch(value: string): string {
 
 export async function listDocuments(supabase: SupabaseClient, query: DocumentListQuery): Promise<PaginatedDocuments> {
   let request = supabase.from("documents").select(documentColumns, { count: "exact" });
+  request = request.eq("deletion_state", "ACTIVE");
 
   if (query.q) {
     const search = escapeLikeSearch(query.q);
@@ -28,13 +29,13 @@ export async function listDocuments(supabase: SupabaseClient, query: DocumentLis
 }
 
 export async function getDocumentById(supabase: SupabaseClient, documentId: string): Promise<DocumentRecord | null> {
-  const { data, error } = await supabase.from("documents").select(documentColumns).eq("document_id", documentId).maybeSingle();
+  const { data, error } = await supabase.from("documents").select(documentColumns).eq("document_id", documentId).eq("deletion_state", "ACTIVE").maybeSingle();
   if (error) throw new Error("Unable to retrieve document.");
   return data as DocumentRecord | null;
 }
 
 export async function listDocumentTypes(supabase: SupabaseClient): Promise<string[]> {
-  const { data, error } = await supabase.from("documents").select("document_type").order("document_type", { ascending: true });
+  const { data, error } = await supabase.from("documents").select("document_type").eq("deletion_state", "ACTIVE").order("document_type", { ascending: true });
   if (error) throw new Error("Unable to retrieve document types.");
   return [...new Set((data ?? []).map((row) => row.document_type).filter(Boolean))];
 }

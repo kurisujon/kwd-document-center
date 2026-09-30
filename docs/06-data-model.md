@@ -81,11 +81,23 @@ Supabase/PostgreSQL is the application's document metadata registry for Phase 2.
 | `filing_year` | INTEGER | Nullable; **CONFIRMED Phase 3 Admin** | Logical Admin filing year |
 | `filing_subcategory` | TEXT | Nullable; **CONFIRMED Phase 3 Admin** | BAC or Attendance subcategory |
 | `status` | TEXT | `ACTIVE`/`ARCHIVED`; **PROPOSED** | Registry record status |
+| `deletion_state` | TEXT | `ACTIVE`/`DELETE_PENDING`/`DELETE_FAILED`/`DELETED`; Phase 7A | Separate soft-deletion lifecycle; not archival status |
+| `delete_started_at` | TIMESTAMPTZ | Nullable | Start time for the current or most recent deletion attempt |
+| `delete_operation_token` | UUID | Required only while pending | Server-generated ownership token for deletion finalization/failure updates |
+| `delete_lease_expires_at` | TIMESTAMPTZ | Required only while pending | Short claim lease; expiry is evaluated transactionally, not by a time-dependent CHECK |
+| `delete_error_category` | TEXT | Nullable bounded category | Safe retry/failure classification without provider diagnostics |
+| `deleted_at` / `deleted_by` | TIMESTAMPTZ / UUID | Required when deleted | Server-controlled deletion audit information |
+| `drive_trashed_at` | TIMESTAMPTZ | Nullable | Drive Trash confirmation; nullable when the stored file was already absent |
 | `created_by` | TEXT | Nullable; **PENDING CONFIRMATION** for the final identifier convention | User or email associated with record creation; Phase 2 retains the already documented uploader-email representation |
 | `created_at` | TIMESTAMPTZ | **PROPOSED** | Record creation timestamp |
 | `updated_at` | TIMESTAMPTZ | **PROPOSED** | Last modification timestamp |
 
 Drive-related fields are retained for Phase 3 extensibility but are not populated through Google APIs in Phase 2.
+
+Phase 7A deletion uses service-role-only `SECURITY DEFINER` RPCs with a fixed
+search path and independent ACTIVE ADMIN actor checks. Direct browser mutation
+of deletion fields is not permitted. Deleted rows remain durable for audit and
+future restore; they are excluded from ordinary document reads.
 
 ## 4. Google Sheets Registry [OUT OF SCOPE]
 

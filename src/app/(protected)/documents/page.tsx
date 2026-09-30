@@ -5,6 +5,7 @@ import { parseDocumentListQuery } from "@/lib/documents/query";
 import { listDocuments, listDocumentTypes } from "@/lib/documents/repository";
 import type { DocumentListQuery, DocumentSortField, PaginatedDocuments } from "@/lib/documents/types";
 import { createClient } from "@/lib/supabase/server";
+import { DocumentDeleteAction } from "@/components/documents/document-delete-action";
 
 function queryHref(query: DocumentListQuery, updates: Partial<Record<keyof DocumentListQuery, string | number | undefined>>) {
   const params = new URLSearchParams();
@@ -58,7 +59,7 @@ export default async function DocumentsPage({ searchParams }: { searchParams: Pr
         <input name="sortOrder" type="hidden" value={query.sortOrder} />
         <button className="button button-secondary filter-submit" type="submit">Apply filters</button>
       </form>
-      <section className="table-wrap" aria-label="Document results"><table><thead><tr><SortHeader label="Document number" field="document_number" query={query} /><SortHeader label="Type" field="document_type" query={query} /><SortHeader label="Date" field="document_date" query={query} /><SortHeader label="Subject" field="subject" query={query} /><th>Actions</th></tr></thead><tbody>{result.documents.length === 0 ? <tr><td colSpan={5} className="empty-state">No documents found. Try adjusting your search or filters.</td></tr> : result.documents.map((document) => <tr key={document.document_id}><td>{document.document_number ?? "—"}</td><td>{document.document_type}</td><td>{document.document_date}</td><td>{document.subject}</td><td><Link className="table-action" href={`/documents/${document.document_id}`}>View<span className="sr-only"> {document.subject}</span></Link></td></tr>)}</tbody></table></section>
+      <section className="table-wrap" aria-label="Document results"><table><thead><tr><SortHeader label="Document number" field="document_number" query={query} /><SortHeader label="Type" field="document_type" query={query} /><SortHeader label="Date" field="document_date" query={query} /><SortHeader label="Subject" field="subject" query={query} /><th>Actions</th></tr></thead><tbody>{result.documents.length === 0 ? <tr><td colSpan={5} className="empty-state">No documents found. Try adjusting your search or filters.</td></tr> : result.documents.map((document) => <tr key={document.document_id}><td>{document.document_number ?? "—"}</td><td>{document.document_type}</td><td>{document.document_date}</td><td>{document.subject}</td><td><Link className="table-action" href={`/documents/${document.document_id}`}>View<span className="sr-only"> {document.subject}</span></Link>{user.role === "ADMIN" && <DocumentDeleteAction id={document.document_id} number={document.document_number} subject={document.subject} />}</td></tr>)}</tbody></table></section>
       <nav className="pagination" aria-label="Document pages"><span>Showing {result.documents.length === 0 ? 0 : (result.page - 1) * result.pageSize + 1}–{Math.min(result.page * result.pageSize, result.total)} of {result.total}</span><div>{result.page > 1 && <Link className="button button-secondary" href={queryHref(query, { page: result.page - 1 })}>Previous</Link>}{result.page < pageCount && <Link className="button button-secondary" href={queryHref(query, { page: result.page + 1 })}>Next</Link>}</div></nav>
     </>;
 }
