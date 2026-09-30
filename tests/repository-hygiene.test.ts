@@ -30,7 +30,13 @@ test("tracked text files contain no recognizable private credential literals", a
   ];
 
   for (const file of files.filter((entry) => entry !== "package-lock.json")) {
-    const source = await readFile(file, "utf8");
+    let source: string;
+    try {
+      source = await readFile(file, "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw error;
+    }
     for (const pattern of secretPatterns) {
       assert.doesNotMatch(source, pattern, file);
     }
