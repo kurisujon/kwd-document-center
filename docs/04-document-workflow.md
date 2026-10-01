@@ -63,3 +63,17 @@ number, subject, date, persons, and destination remain editable per file.
 Only ready rows upload. A failed file is retried with its original idempotency
 key without resubmitting successful rows. Folder upload and CSV metadata
 import remain future work.
+
+## 5. Controlled folder creation [CONFIRMED, PHASE 7C]
+
+Only an authenticated, ACTIVE ADMIN may create one direct child folder under an
+explicitly mapped Admin destination. The application resolves the parent from
+logical category/year/subcategory metadata and fails closed for an unmapped
+destination; it never falls back to the Drive root or accepts a client Drive
+ID. Folder names follow a validated, normalized office naming policy.
+
+Folder creation reserves a Drive ID in a durable registry before the Drive
+create call. This makes same-key retries and ambiguous provider results safe,
+while a unique normalized name per logical parent prevents concurrent
+duplicates. Nested folders, folder upload, folder browsing, rename, move, and
+folder deletion are out of scope.

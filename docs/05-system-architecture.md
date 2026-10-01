@@ -75,6 +75,9 @@ graph LR
 - For Phase 7B, coordinate no server-side batch transaction: the browser
   queues independent existing upload requests with bounded concurrency, and
   every request retains the established upload-attempt state machine.
+- For Phase 7C, coordinate an ADMIN-only, one-level folder creation operation
+  through a durable registry claim, reserved Drive ID, exact mapped parent, and
+  token-guarded finalization. Folder discovery and root fallback are excluded.
 
 ### Auth Service
 - Verify Supabase session

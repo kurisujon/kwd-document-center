@@ -31,3 +31,13 @@ export function getAdminDriveFolderId(category: AdminCategory, year: number | nu
   if (typeof rootFolderId === "string" && driveFolderIdPattern.test(rootFolderId)) return rootFolderId;
   throw new DriveConfigurationError(`No valid Drive destination is configured for ${key}.`);
 }
+
+/** Folder creation must never fall back to the configured Drive root. */
+export function getExplicitAdminDriveFolderId(category: AdminCategory, year: number | null, subcategory: string): { key: string; folderId: string } {
+  const key = getAdminFolderMappingKey(category, year ?? undefined, subcategory || undefined);
+  const folderId = loadFolderMap()[key];
+  if (typeof folderId !== "string" || !driveFolderIdPattern.test(folderId)) {
+    throw new DriveConfigurationError(`No explicit Drive destination is configured for ${key}.`);
+  }
+  return { key, folderId };
+}

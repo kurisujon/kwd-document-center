@@ -62,6 +62,15 @@ Only implement if KWD confirms the need.
 | `details` | JSONB | nullable | Additional context |
 | `created_at` | TIMESTAMPTZ | default now() | When the action occurred |
 
+### document_folders [CONFIRMED, PHASE 7C]
+
+Tracks application-created folders and their durable creation operations. It is
+not a general Drive browser. Each row has a unique idempotency key and unique
+`(logical_parent_key, normalized_name)` pair, plus the reserved Drive folder
+ID, server-derived creator, operation token/lease, safe failure category, and
+`CREATING`/`ACTIVE`/`FAILED` lifecycle. Browser roles have no direct access;
+service-role-only RPCs reauthorize the actor as an ACTIVE ADMIN.
+
 ## 3. Phase 2 Supabase/PostgreSQL Document Registry [PROPOSED]
 
 Supabase/PostgreSQL is the application's document metadata registry for Phase 2. The registry supports document search, filtering, sorting, pagination, and detail retrieval. The model uses only fields already described in the project documentation; final field requirements remain subject to the classifications below.

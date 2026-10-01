@@ -28,6 +28,11 @@
   the normal list. The control is absent for STAFF and VIEWER users, remains
   disabled while the request is in progress, and refreshes the list only after
   server confirmation.
+- **ADMIN folder creation [PHASE 7C]**: An ADMIN-only Create folder action
+  opens a labeled form for logical destination and one folder name. A readable
+  destination preview precedes submission. STAFF and VIEWER users do not see
+  the action; the server remains authoritative. No folder explorer, nested
+  creation, rename, move, or folder upload is provided.
 
 ### Document Detail Page
 - **Route**: `/documents/[id]`

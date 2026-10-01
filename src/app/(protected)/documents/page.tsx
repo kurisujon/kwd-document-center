@@ -1,11 +1,11 @@
 import Link from "next/link";
 import { requireAuthorizedUser } from "@/lib/auth/server";
-import { hasMinimumRole } from "@/lib/auth/permissions";
 import { parseDocumentListQuery } from "@/lib/documents/query";
 import { listDocuments, listDocumentTypes } from "@/lib/documents/repository";
 import type { DocumentListQuery, DocumentSortField, PaginatedDocuments } from "@/lib/documents/types";
 import { createClient } from "@/lib/supabase/server";
 import { DocumentDeleteAction } from "@/components/documents/document-delete-action";
+import { DocumentPageActions } from "@/components/documents/document-page-actions";
 
 function queryHref(query: DocumentListQuery, updates: Partial<Record<keyof DocumentListQuery, string | number | undefined>>) {
   const params = new URLSearchParams();
@@ -49,7 +49,7 @@ export default async function DocumentsPage({ searchParams }: { searchParams: Pr
 
   const pageCount = Math.max(1, Math.ceil(result.total / result.pageSize));
   return <>
-      <header className="page-heading"><div><h1>Documents</h1><p>Search and browse the KWD document registry.</p></div>{hasMinimumRole(user.role, "STAFF") && <Link className="button button-primary" href="/documents/upload">Upload document</Link>}</header>
+      <header className="page-heading"><div><h1>Documents</h1><p>Search and browse the KWD document registry.</p></div><DocumentPageActions role={user.role} /></header>
       <form className="search-panel" aria-label="Document filters">
         <label className="field search-field">Search documents<input name="q" type="search" defaultValue={query.q} placeholder="Search by number, subject, or person" /></label>
         <label className="field">Document type<select name="type" defaultValue={query.type ?? ""}><option value="">All document types</option>{documentTypes.map((type) => <option key={type} value={type}>{type}</option>)}</select></label>

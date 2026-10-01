@@ -85,6 +85,16 @@ provider and registry failures return safe retryable errors without provider
 diagnostics. Deleted documents return normal not-found behavior for detail,
 Open in Drive, and Download.
 
+### Controlled folder creation [CONFIRMED, PHASE 7C]
+
+`POST /api/folders` accepts JSON logical destination metadata, a validated
+folder name, and an idempotency UUID. It requires an ACTIVE ADMIN and a
+same-origin request. The server resolves an explicitly mapped parent without
+root fallback, reserves a Drive ID before creating one folder, and returns
+only a safe name/destination result. Unknown fields and client Drive IDs are
+rejected. The route performs no folder listing, recursion, move, rename, or
+permission mutation.
+
 ### Drive OAuth Setup (Admin Only)
 | Operation | Method | Purpose | Auth Required | Min Role |
 |---|---|---|---|---|
