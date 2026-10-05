@@ -70,6 +70,7 @@ Phase 1 login error states distinguish session failure (`/login?error=auth`), an
 - `GOOGLE_DRIVE_REFRESH_TOKEN` — refresh token for the KWD official storage account
 - `GOOGLE_DRIVE_ROOT_FOLDER_ID` — configured KWD Drive root folder ID
 - `GOOGLE_DRIVE_ADMIN_FOLDER_MAP` — exact Phase 3 Admin logical-destination-to-folder-ID mapping
+- `GOOGLE_DRIVE_ADMIN_DEPARTMENT_ROOT_ID` — configured ADMIN hierarchy root for Phase 7C.1
 - `ADMIN_UPLOAD_MAX_BYTES` — optional explicit upload limit; defaults to 4 MiB
 
 The existing Supabase Google authentication client remains unchanged. Its credentials and redirect URI are managed by Supabase and are separate from the Drive Storage OAuth client.
@@ -109,3 +110,15 @@ If approved, minimum useful events:
 - Role change
 
 Store in Supabase audit_log table. Simple append-only insert. No complex querying required for MVP.
+
+## 11. Phase 7C.1 hierarchy security [IMPLEMENTED LOCALLY]
+
+Hierarchy reads and writes require an ACTIVE ADMIN. The server derives the
+actor ID; clients cannot supply Drive IDs, operation tokens, logical keys,
+logical parent keys, normalized names, or inherited hierarchy metadata.
+Hierarchy POST retains same-origin and JSON-only protections. The Drive scope
+remains exactly `https://www.googleapis.com/auth/drive.file`.
+
+`GOOGLE_DRIVE_ADMIN_DEPARTMENT_ROOT_ID` is server-only configuration and must
+be present for `department:ADMIN` creation. Accounting remains disabled and
+PRE-POST remains out of scope.

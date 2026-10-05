@@ -53,6 +53,7 @@ All environment variables must be configured in the Vercel dashboard.
 | `GOOGLE_DRIVE_REFRESH_TOKEN` | Server | OAuth refresh token for `kiblawanwaterdistrict@gmail.com` |
 | `GOOGLE_DRIVE_ROOT_FOLDER_ID` | Server | KWD My Drive root folder ID |
 | `GOOGLE_DRIVE_ADMIN_FOLDER_MAP` | Server | JSON mapping of Admin logical destinations to exact Drive folder IDs |
+| `GOOGLE_DRIVE_ADMIN_DEPARTMENT_ROOT_ID` | Server | Exact configured ADMIN hierarchy root for Phase 7C.1 |
 | `ADMIN_UPLOAD_MAX_BYTES` | Server | Optional upload limit; defaults to 4194304 bytes |
 
 Folder IDs must be provisioned after KWD approves the physical My Drive folder structure. The application does not import legacy files or create, move, or rename folders during this phase.
@@ -80,3 +81,31 @@ Folder IDs must be provisioned after KWD approves the physical My Drive folder s
 - **Supabase Free**: Sufficient for auth + small user table + Phase 2 document registry + upload tracking
 - **Google Drive**: Free (uses existing KWD storage)
 - **Estimated total**: $0-20/month
+
+## 7. Phase 7C.1 controlled rollout [PENDING APPROVAL]
+
+The Phase 7C.1 migration is currently unapplied. Future rollout must be a
+reviewed sequence, not an automatic deploy action:
+
+1. Obtain a definitive full validation and production-build checkpoint.
+2. Review the frozen `20261002000000_extend_document_folders_hierarchy.sql` migration.
+3. Apply that migration through the approved production change process.
+4. Verify server-only `GOOGLE_DRIVE_ADMIN_DEPARTMENT_ROOT_ID`; confirm Accounting remains disabled.
+5. Approve exact STATIC identities, then perform the controlled STATIC bootstrap if needed.
+6. Verify resulting registry rows before deploying the Phase 7C.1 application.
+7. Deploy, then perform the smallest approved hierarchy canary:
+   `ADMIN DOCUMENTS → 2027 → BACTI TEST`.
+8. Verify the application, registry linkage, exact Drive placement, and safe browser responses; monitor before broad use.
+
+The existing `PH7C-CANARY-FOLDER-001` remains a Phase 7C legacy object. It
+must not be deleted, moved, recreated, or automatically converted into a
+hierarchy node without separate approval. No upload is required for the future
+Phase 7C.1 canary.
+
+### Current release checkpoint
+
+- Done locally: implementation, focused/full tests, typecheck, and Phase 7C.1 lint delta.
+- Pending: definitive local production-build completion (the current WSL build
+  process was OOM-killed), Luna release/migration review, migration application,
+  trusted production configuration verification, STATIC bootstrap approval and
+  execution, deployment, and canary verification.

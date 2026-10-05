@@ -153,3 +153,29 @@ Phase 4 prevents an ADMIN from demoting or deactivating their own account throug
 - Drive OAuth state is short-lived and replay-resistant; callback responses consume state and use no-store/no-referrer protections.
 - The one-time refresh-token display for manual server configuration is an accepted current operational design. It is ACTIVE ADMIN-only, response-body only, non-cacheable, and frame-restricted.
 - The `finalize_admin_upload` `SECURITY DEFINER` audit found no demonstrated exploit: sensitive relations are qualified and untrusted application roles cannot create objects in `public`. Its `search_path = public` remains a LOW defense-in-depth follow-up, not a current blocker.
+
+## Phase 7C.1 controlled hierarchy procedure [PENDING PRODUCTION APPROVAL]
+
+Before a hierarchy rollout, obtain deployment and migration approval, verify
+the server-only ADMIN root configuration, and approve the exact existing STATIC
+identities to be registered. Accounting is disabled and PRE-POST is excluded.
+Never use broad Drive discovery, `files.list`, or guessed provider identities.
+
+The planner `buildStaticHierarchyBootstrapPlan()` consumes trusted configuration
+only. It is deterministic, parent-first, skips missing intermediate IDs,
+preserves legacy-only destinations, excludes automatic WORKING_FOLDER bootstrap,
+and does not mutate Drive or the database. The executor
+`executeStaticHierarchyBootstrapPlan()` consumes only a reviewed plan; it
+registers parent-first, resolves parent application UUIDs from registration
+results, fails fast, and makes no provider calls or production configuration
+reads.
+
+Bootstrap can leave partial parent-first registration after a later failure.
+Do not delete already registered parents or overwrite a differing provider
+identity. Matching replay is idempotent; conflicts fail closed. Actual
+production bootstrap has not been executed.
+
+For normal hierarchy creation, preserve one provider ID before create, verify
+only the exact ID, and leave ambiguous create/verification failures recoverable
+in `CREATING`. A proven object mismatch may be marked failed. Do not perform
+provider cleanup, move, rename, delete, or permission changes as recovery.

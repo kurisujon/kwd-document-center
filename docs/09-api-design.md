@@ -174,3 +174,23 @@ The Documents list endpoint supports:
 - `sortBy` / `sortOrder` — sorting (default: created_at DESC)
 
 For Phase 2, Supabase/PostgreSQL performs the registry queries, filtering, sorting, and pagination. Google Sheets is not queried or synchronized in Phase 2.
+
+## 7. Controlled hierarchy endpoints [IMPLEMENTED LOCALLY, PHASE 7C.1]
+
+`GET /api/folders/parents?department=ADMIN&childKind=YEAR|CATEGORY|SUBCATEGORY|WORKING_FOLDER`
+is ACTIVE-ADMIN-only and returns browser-safe parent references. YEAR returns
+the fixed `department:ADMIN` reference; dynamic parents expose application UUIDs
+and safe labels only. Drive IDs and operation ownership data are never returned.
+
+`POST /api/folders` retains the Phase 7C legacy request path. A body containing
+`childKind` selects the Phase 7C.1 hierarchy branch. Its browser inputs are
+`departmentKey`, `parentRef`, `childKind`, `idempotencyKey`, and exactly one
+requested value: `requestedFilingYear`, `requestedCategory`,
+`requestedSubcategory`, or `requestedName`.
+
+Hierarchy results are browser-safe: `ACTIVE` is 201, `ACTIVE_EXISTING` is 200,
+`IN_PROGRESS` is 202, duplicate conflict is 409, invalid hierarchy/input is
+400, controlled terminal failure is non-success, and operational failure is a
+safe 500. The response whitelists application folder identity and safe
+hierarchy metadata; it never serializes provider IDs, tokens, leases, or raw
+diagnostics.

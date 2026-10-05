@@ -75,3 +75,17 @@ If KWD prefers to keep original file names, the application stores the original 
 - File naming convention approval
 - Whether staff should have direct Drive access alongside application access
 - Archive/retention policy for old documents
+
+## 8. Controlled hierarchy creation [IMPLEMENTED LOCALLY, PHASE 7C.1]
+
+Hierarchy creation does not use the legacy upload/root-fallback routing path.
+It resolves only a configured ADMIN department root or an ACTIVE registry
+parent, then fails closed. Provider IDs remain server-only; browsers use a
+fixed department reference or application UUID.
+
+The service reserves and persists one Drive ID before creating a folder. A
+retry reuses that same ID, creates with that exact ID, and verifies it through
+a targeted `files.get`. It does not use `files.list`, arbitrary discovery,
+move/rename/delete cleanup, or provider cleanup after an ambiguous failure.
+Ambiguous failures remain recoverable with the persisted ID; a proven exact
+object mismatch may enter the controlled failed lifecycle.

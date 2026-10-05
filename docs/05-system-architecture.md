@@ -163,3 +163,24 @@ For a small team MVP, the following strategies are acceptable:
 ## 8. Architectural Simplicity [CONFIRMED]
 
 The project intentionally avoids enterprise complexity. No Kubernetes, Redis, Kafka, Elasticsearch, microservices, message brokers, or complex event-driven architectures. The system must remain understandable to one or two developers.
+
+## 9. Controlled Folder Hierarchy [IMPLEMENTED LOCALLY, PHASE 7C.1]
+
+Phase 7C.1 adds a controlled ADMIN hierarchy registry; it is not a general
+Google Drive browser. The permitted shape is:
+
+```text
+DEPARTMENT → YEAR → CATEGORY → SUBCATEGORY → WORKING_FOLDER
+                         └────→ WORKING_FOLDER
+```
+
+Nothing may be created below a `WORKING_FOLDER`. ADMIN is the only enabled
+department. The configured `department:ADMIN` root may create a `YEAR`; all
+other parents are ACTIVE application registry records identified by application
+UUID, not provider IDs.
+
+Nodes are either `STATIC` (an approved existing folder recorded without a
+provider create) or `DYNAMIC` (created through the durable claim/reserve/create
+lifecycle). Existing Phase 7C legacy mappings remain authoritative for their
+legacy workflow and do not automatically become hierarchy nodes. Accounting is
+deferred and PRE-POST is out of scope.

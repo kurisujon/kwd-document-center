@@ -71,6 +71,20 @@ ID, server-derived creator, operation token/lease, safe failure category, and
 `CREATING`/`ACTIVE`/`FAILED` lifecycle. Browser roles have no direct access;
 service-role-only RPCs reauthorize the actor as an ACTIVE ADMIN.
 
+### Phase 7C.1 hierarchy extension [IMPLEMENTED LOCALLY, UNAPPLIED]
+
+The pending `20261002000000_extend_document_folders_hierarchy.sql` migration
+extends `public.document_folders` with nullable transitional hierarchy fields:
+`parent_folder_id`, `department_key`, `hierarchy_kind`, `filing_year`,
+`category`, `subcategory`, `logical_key`, `source`, and `upload_enabled`.
+`upload_enabled` defaults to `false`. Existing Phase 7C rows may legitimately
+lack hierarchy metadata until a separately approved linking/bootstrap step.
+
+`source` is `STATIC` or `DYNAMIC`. STATIC ACTIVE rows retain a known Drive ID
+without an operation token or lease. DYNAMIC rows use the existing
+`CREATING` → `ACTIVE` / `FAILED` lifecycle with a persisted provider ID,
+operation token, and lease while ownership is active.
+
 ## 3. Phase 2 Supabase/PostgreSQL Document Registry [PROPOSED]
 
 Supabase/PostgreSQL is the application's document metadata registry for Phase 2. The registry supports document search, filtering, sorting, pagination, and detail retrieval. The model uses only fields already described in the project documentation; final field requirements remain subject to the classifications below.
