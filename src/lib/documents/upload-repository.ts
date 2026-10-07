@@ -6,6 +6,79 @@ import type { UploadAttempt, UploadMetadataSnapshot } from "./upload-types";
 
 const attemptColumns = "id, idempotency_key, status, drive_file_id, operation_token, reservation_expires_at, metadata_snapshot, document_id, created_by, safe_error_code";
 
+export type FolderUploadClaimInput = {
+  actorId: string;
+  idempotencyKey: string;
+  destinationFolderId: string;
+  sourceRelativePath: string;
+  normalizedRelativePathKey: string;
+  contentSha256: Uint8Array;
+  metadataSnapshot: UploadMetadataSnapshot;
+};
+
+export type FolderUploadClaimOutcome = "CLAIMED" | "REPLAY" | "COMPLETE" | "DUPLICATE_PATH" | "IDEMPOTENCY_MISMATCH" | "NOT_AUTHORIZED" | "INVALID_DESTINATION" | "INVALID_REQUEST";
+export type FolderUploadClaimResult = {
+  outcome: FolderUploadClaimOutcome;
+  attemptId: string | null;
+  attemptStatus: UploadAttempt["status"] | null;
+  driveFileId: string | null;
+  operationToken: string | null;
+  reservationExpiresAt: string | null;
+  documentId: string | null;
+};
+export type FinalizeFolderUploadInput = { attemptId: string; actorId: string; expectedDriveFileId: string };
+
+export class FolderUploadAttemptRepositoryError extends Error {
+  constructor() { super("Folder upload state is unavailable."); }
+}
+
+export interface FolderUploadAttemptRepository {
+  claimFolderUploadAttempt(input: FolderUploadClaimInput): Promise<FolderUploadClaimResult>;
+  finalizeFolderUploadAttempt(input: FinalizeFolderUploadInput): Promise<DocumentRecord>;
+}
+
+function byteaLiteral(bytes: Uint8Array): string {
+  return `\\x${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+}
+
+function isClaimOutcome(value: unknown): value is FolderUploadClaimOutcome {
+  return typeof value === "string" && ["CLAIMED", "REPLAY", "COMPLETE", "DUPLICATE_PATH", "IDEMPOTENCY_MISMATCH", "NOT_AUTHORIZED", "INVALID_DESTINATION", "INVALID_REQUEST"].includes(value);
+}
+
+function isUploadAttemptStatus(value: unknown): value is UploadAttempt["status"] {
+  return typeof value === "string" && ["PENDING_UPLOAD", "UPLOADING", "PENDING_REGISTRY", "COMPLETE", "FAILED"].includes(value);
+}
+
+export function createFolderUploadAttemptRepository(supabase: SupabaseClient): FolderUploadAttemptRepository {
+  return {
+    async claimFolderUploadAttempt(input) {
+      const { data, error } = await supabase.rpc("admin_claim_folder_upload_attempt", {
+        p_actor_id: input.actorId,
+        p_idempotency_key: input.idempotencyKey,
+        p_destination_folder_id: input.destinationFolderId,
+        p_source_relative_path: input.sourceRelativePath,
+        p_normalized_relative_path_key: input.normalizedRelativePathKey,
+        p_content_sha256: byteaLiteral(input.contentSha256),
+        p_metadata_snapshot: input.metadataSnapshot,
+      });
+      if (error || !Array.isArray(data) || data.length !== 1 || !isClaimOutcome(data[0]?.outcome)) throw new FolderUploadAttemptRepositoryError();
+      const row = data[0] as { outcome: FolderUploadClaimOutcome; attempt_id: string | null; attempt_status: UploadAttempt["status"] | null; drive_file_id: string | null; operation_token: string | null; reservation_expires_at: string | null; document_id: string | null };
+      if (["CLAIMED", "REPLAY", "COMPLETE"].includes(row.outcome) && (typeof row.attempt_id !== "string" || !isUploadAttemptStatus(row.attempt_status))) throw new FolderUploadAttemptRepositoryError();
+      if (row.outcome === "COMPLETE" && typeof row.document_id !== "string") throw new FolderUploadAttemptRepositoryError();
+      return { outcome: row.outcome, attemptId: row.attempt_id, attemptStatus: row.attempt_status, driveFileId: row.drive_file_id, operationToken: row.operation_token, reservationExpiresAt: row.reservation_expires_at, documentId: row.document_id };
+    },
+    async finalizeFolderUploadAttempt(input) {
+      const { data, error } = await supabase.rpc("admin_finalize_folder_upload", {
+        p_attempt_id: input.attemptId,
+        p_actor_id: input.actorId,
+        p_expected_drive_file_id: input.expectedDriveFileId,
+      });
+      if (error || !data || typeof (data as { document_id?: unknown }).document_id !== "string") throw new FolderUploadAttemptRepositoryError();
+      return data as DocumentRecord;
+    },
+  };
+}
+
 export interface UploadAttemptRepository {
   findByIdempotencyKey(key: string): Promise<UploadAttempt | null>;
   create(key: string, creatorId: string, snapshot: UploadMetadataSnapshot): Promise<UploadAttempt>;

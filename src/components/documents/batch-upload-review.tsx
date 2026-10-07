@@ -13,7 +13,7 @@ function defaultValues(category: AdminCategory): BatchUploadDefaults {
 }
 
 function statusLabel(status: BatchUploadItem["status"]) {
-  return ({ QUEUED: "Needs metadata", NEEDS_METADATA: "Needs metadata", READY: "Ready", UPLOADING: "Uploading", UPLOADED: "Uploaded", FAILED: "Failed", INVALID_FILE: "Invalid file", CANCELLED: "Cancelled" })[status];
+  return ({ QUEUED: "Needs metadata", NEEDS_METADATA: "Needs metadata", READY: "Ready", UPLOADING: "Uploading", IN_PROGRESS: "In progress", UPLOADED: "Uploaded", FAILED: "Failed", INVALID_FILE: "Invalid file", CANCELLED: "Cancelled" })[status];
 }
 
 export function BatchUploadReview({ categories, maxBytes }: Props) {

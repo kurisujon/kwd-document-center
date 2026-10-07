@@ -1,6 +1,6 @@
 import { batchUploadConcurrency, type BatchUploadItem } from "./batch-upload-types";
 
-export type BatchUploadResponse = { documentId: string };
+export type BatchUploadResponse = { documentId: string; inProgress?: boolean };
 export type BatchUploadWorker = (item: BatchUploadItem) => Promise<BatchUploadResponse>;
 
 export function createBatchUploadRunGuard() {

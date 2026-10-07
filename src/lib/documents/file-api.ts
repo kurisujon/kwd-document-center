@@ -4,12 +4,32 @@ import type { AuthorizationResult } from "../auth/types";
 import { DriveServiceError, isDriveFileId, type DriveService } from "../google/drive-types";
 import type { DocumentRecord } from "./types";
 import { DocumentUploadError } from "./upload-service";
-import { UploadValidationError, validateAdminUploadForm } from "./upload-validation";
-import type { UploadResult, ValidatedAdminUpload } from "./upload-types";
+import { UploadValidationError, validateAdminUploadForm, validateFolderUploadForm } from "./upload-validation";
+import type { UploadResult, ValidatedAdminUpload, ValidatedFolderUpload } from "./upload-types";
 import type { AuthorizedUser } from "../auth/types";
 import { isSameOrigin } from "../http/origin";
 import { protectedJson, protectResponse } from "../http/response";
 import { logOperationalFailure } from "../observability/log";
+
+type FolderUploadDocumentDto = Pick<DocumentRecord, "document_id" | "document_type" | "document_number" | "document_date" | "subject" | "persons_involved" | "file_name" | "file_type" | "filing_year" | "filing_subcategory" | "status" | "created_at" | "updated_at">;
+
+function toFolderUploadDocument(document: DocumentRecord): FolderUploadDocumentDto {
+  return {
+    document_id: document.document_id,
+    document_type: document.document_type,
+    document_number: document.document_number,
+    document_date: document.document_date,
+    subject: document.subject,
+    persons_involved: document.persons_involved,
+    file_name: document.file_name,
+    file_type: document.file_type,
+    filing_year: document.filing_year,
+    filing_subcategory: document.filing_subcategory,
+    status: document.status,
+    created_at: document.created_at,
+    updated_at: document.updated_at,
+  };
+}
 
 function jsonError(code: string, message: string, status: number, field?: string) {
   return protectedJson({ error: { code, message, ...(field ? { field } : {}) } }, status);
@@ -32,6 +52,7 @@ function driveError(error: unknown, resourceId?: string) {
 export function createUploadDocumentHandler(dependencies: {
   getAuthorization: () => Promise<AuthorizationResult>;
   uploadDocument: (input: { upload: ValidatedAdminUpload; user: AuthorizedUser }) => Promise<UploadResult>;
+  uploadFolderDocument?: (input: { upload: ValidatedFolderUpload; user: AuthorizedUser }) => Promise<UploadResult>;
 }) {
   return async function POST(request: Request) {
     const authorization = await dependencies.getAuthorization();
@@ -39,18 +60,26 @@ export function createUploadDocumentHandler(dependencies: {
     if (!hasMinimumRole(authorization.user.role, "STAFF")) return jsonError("FORBIDDEN", "Staff access is required to upload documents.", 403);
     if (!isSameOrigin(request)) return jsonError("FORBIDDEN", "The upload request origin is not allowed.", 403);
 
-    let upload;
+    let formData: FormData;
     try {
-      upload = await validateAdminUploadForm(await request.formData());
-    } catch (error) {
-      if (error instanceof UploadValidationError) return jsonError("VALIDATION_ERROR", error.message, 400, error.field);
+      formData = await request.formData();
+    } catch {
       return jsonError("VALIDATION_ERROR", "The multipart upload request is invalid.", 400);
     }
 
+    const hasTarget = formData.has("target_folder_id");
+    const hasPath = formData.has("source_relative_path");
+    if (hasTarget !== hasPath || formData.has("normalized_relative_path_key")) return jsonError("VALIDATION_ERROR", "Both folder upload fields are required.", 400);
+    let result: UploadResult;
     try {
-      const result = await dependencies.uploadDocument({ upload, user: authorization.user });
-      return protectedJson({ document: result.document, reused: !result.created }, result.created ? 201 : 200);
+      if (hasTarget && hasPath) {
+        if (!dependencies.uploadFolderDocument) return jsonError("VALIDATION_ERROR", "Folder upload is unavailable.", 400);
+        result = await dependencies.uploadFolderDocument({ upload: await validateFolderUploadForm(formData), user: authorization.user });
+      } else {
+        result = await dependencies.uploadDocument({ upload: await validateAdminUploadForm(formData), user: authorization.user });
+      }
     } catch (error) {
+      if (error instanceof UploadValidationError) return jsonError("VALIDATION_ERROR", error.message, 400, error.field);
       if (error instanceof DocumentUploadError) {
         if (error.status >= 500) logOperationalFailure({ operation: "documents.upload", outcome: "failure", category: error.code, status: error.status });
         return jsonError(error.code, error.message, error.status);
@@ -58,6 +87,8 @@ export function createUploadDocumentHandler(dependencies: {
       logOperationalFailure({ operation: "documents.upload", outcome: "failure", category: "UNEXPECTED_UPLOAD_FAILURE", status: 500 });
       return jsonError("REGISTRY_ERROR", "The document upload could not be completed.", 500);
     }
+
+    return protectedJson({ document: hasTarget ? toFolderUploadDocument(result.document) : result.document, reused: !result.created }, result.created ? 201 : 200);
   };
 }
 

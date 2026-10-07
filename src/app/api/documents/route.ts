@@ -3,8 +3,9 @@ import { createListDocumentsHandler } from "@/lib/documents/api";
 import { createUploadDocumentHandler } from "@/lib/documents/file-api";
 import { parseDocumentListQuery } from "@/lib/documents/query";
 import { listDocuments } from "@/lib/documents/repository";
-import { createUploadAttemptRepository } from "@/lib/documents/upload-repository";
-import { uploadAdminDocument } from "@/lib/documents/upload-service";
+import { createFolderUploadAttemptRepository, createUploadAttemptRepository } from "@/lib/documents/upload-repository";
+import { createHierarchyRepository } from "@/lib/documents/hierarchy-repository";
+import { uploadAdminDocument, uploadFolderDocument } from "@/lib/documents/upload-service";
 import { createDriveService } from "@/lib/google/drive";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -25,4 +26,15 @@ export const POST = createUploadDocumentHandler({
     repository: createUploadAttemptRepository(createAdminClient()),
     drive: createDriveService(),
   }),
+  uploadFolderDocument: async ({ upload, user }) => {
+    const client = createAdminClient();
+    return uploadFolderDocument({
+      upload,
+      user,
+      attempts: createUploadAttemptRepository(client),
+      folderAttempts: createFolderUploadAttemptRepository(client),
+      getDestination: (folderId) => createHierarchyRepository(client).getHierarchyFolderById(folderId),
+      drive: createDriveService(),
+    });
+  },
 });

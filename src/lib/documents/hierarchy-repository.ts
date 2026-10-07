@@ -11,11 +11,34 @@ export type HierarchyFolderFailureCategory="DRIVE_PERMISSION"|"DRIVE_UNAVAILABLE
 export type MarkHierarchyFolderFailedInput={folderId:string;actorId:string;operationToken:string;errorCategory:HierarchyFolderFailureCategory};
 export type RegisterStaticHierarchyFolderInput={actorId:string;parentFolderId:string|null;logicalParentKey:string;driveParentId:string;departmentKey:string;hierarchyKind:NonNullable<HierarchyFolderRow["hierarchy_kind"]>;filingYear:number|null;category:string|null;subcategory:string|null;name:string;normalizedName:string;logicalKey:string;driveFolderId:string;uploadEnabled:boolean};
 export type StaticHierarchyRegistrationResult={folderId:string;created:boolean};
+export type SetHierarchyUploadEnabledInput={folderId:string;uploadEnabled:boolean};
+function isEligibleHierarchyUploadSetting(row:HierarchyFolderRecord, enable:boolean){
+  if(row.status!=="ACTIVE"||row.departmentKey!=="ADMIN"||!(["CATEGORY","SUBCATEGORY","WORKING_FOLDER"] as const).includes(row.hierarchyKind as "CATEGORY"|"SUBCATEGORY"|"WORKING_FOLDER"))return false;
+  if(row.filingYear===null||!row.category||!row.logicalKey)return false;
+  if(row.hierarchyKind==="CATEGORY"&&row.subcategory!==null)return false;
+  if(row.hierarchyKind==="SUBCATEGORY"&&!row.subcategory)return false;
+  return !enable||!!row.driveFolderId;
+}
 export function mapHierarchyFolderRow(row:HierarchyFolderRow):HierarchyFolderRecord { return { id:row.id,idempotencyKey:row.idempotency_key,logicalParentKey:row.logical_parent_key,parentFolderId:row.parent_folder_id,departmentKey:row.department_key,hierarchyKind:row.hierarchy_kind,filingYear:row.filing_year,category:row.category,subcategory:row.subcategory,logicalKey:row.logical_key,name:row.name,normalizedName:row.normalized_name,source:row.source,status:row.status,driveParentId:row.drive_parent_id,driveFolderId:row.drive_folder_id,uploadEnabled:row.upload_enabled,operationToken:row.operation_token,leaseExpiresAt:row.lease_expires_at,createdBy:row.created_by,errorCategory:row.error_category,createdAt:row.created_at,updatedAt:row.updated_at }; }
 export function createHierarchyRepository(supabase: SupabaseClient) {
   return {
+    async getHierarchyFolderById(id: string) { const { data, error } = await supabase.from("document_folders").select("*").eq("id", id).maybeSingle(); if (error) throw new Error("Hierarchy registry is unavailable."); return data ? mapHierarchyFolderRow(data as HierarchyFolderRow) : null; },
     async getActiveHierarchyFolderById(id: string) { const { data, error } = await supabase.from("document_folders").select("*").eq("id", id).eq("status", "ACTIVE").maybeSingle(); if (error) throw new Error("Hierarchy registry is unavailable."); return data ? mapHierarchyFolderRow(data as HierarchyFolderRow) : null; },
     async listActiveHierarchyFolders(options: ListActiveHierarchyFoldersOptions = {}) { if (options.kinds && options.kinds.length === 0) return []; const active = supabase.from("document_folders").select("*").eq("status","ACTIVE"); const departmentFiltered = options.departmentKey ? active.eq("department_key", options.departmentKey) : active; const query = options.kinds ? departmentFiltered.in("hierarchy_kind", options.kinds) : departmentFiltered; const {data,error}=await query; if(error) throw new Error("Hierarchy registry is unavailable."); return (data??[]).map((row:HierarchyFolderRow)=>mapHierarchyFolderRow(row)); },
+    async setHierarchyUploadEnabled(input:SetHierarchyUploadEnabledInput):Promise<HierarchyFolderRecord|null>{
+      const {data:existing,error:existingError}=await supabase.from("document_folders").select("*").eq("id",input.folderId).maybeSingle();
+      if(existingError)throw new Error("Hierarchy registry is unavailable.");
+      if(!existing)return null;
+      const row=mapHierarchyFolderRow(existing as HierarchyFolderRow);
+      if(!isEligibleHierarchyUploadSetting(row,input.uploadEnabled))return null;
+      let update=supabase.from("document_folders").update({upload_enabled:input.uploadEnabled}).eq("id",row.id).eq("status","ACTIVE").eq("department_key","ADMIN").eq("hierarchy_kind",row.hierarchyKind).eq("filing_year",row.filingYear).eq("category",row.category).eq("logical_key",row.logicalKey).eq("drive_parent_id",row.driveParentId);
+      update=row.parentFolderId===null?update.is("parent_folder_id",null):update.eq("parent_folder_id",row.parentFolderId);
+      update=row.subcategory===null?update.is("subcategory",null):update.eq("subcategory",row.subcategory);
+      if(input.uploadEnabled)update=update.not("drive_folder_id","is",null);
+      const {data,error}=await update.select("*").maybeSingle();
+      if(error)throw new Error("Hierarchy registry is unavailable.");
+      return data?mapHierarchyFolderRow(data as HierarchyFolderRow):null;
+    },
     async claimHierarchyFolderCreation(input:HierarchyClaimInput):Promise<HierarchyClaimResult>{const {data,error}=await supabase.rpc("admin_claim_hierarchy_folder_creation",{p_actor_id:input.actorId,p_idempotency_key:input.idempotencyKey,p_parent_folder_id:input.parentFolderId,p_logical_parent_key:input.logicalParentKey,p_drive_parent_id:input.driveParentId,p_department_key:input.departmentKey,p_hierarchy_kind:input.hierarchyKind,p_filing_year:input.filingYear,p_category:input.category,p_subcategory:input.subcategory,p_name:input.name,p_normalized_name:input.normalizedName,p_logical_key:input.logicalKey,p_operation_token:input.operationToken,p_lease_seconds:input.leaseSeconds??60});if(error)throw new Error("Hierarchy registry is unavailable.");if(!Array.isArray(data)||data.length!==1)throw new Error("Hierarchy registry is unavailable.");const row=data[0] as HierarchyClaim;return {kind:row.outcome==="CLAIMED"?"OWNED":row.outcome==="ACTIVE"?"ACTIVE_EXISTING":row.outcome==="IN_PROGRESS"?"IN_PROGRESS":"DUPLICATE",folderId:row.folder_id,driveFolderId:row.drive_folder_id,operationToken:row.operation_token};},
     async persistHierarchyDriveFolderId(input:PersistHierarchyDriveFolderIdInput){const {data,error}=await supabase.rpc("admin_set_document_folder_drive_id",{p_folder_id:input.folderId,p_actor_id:input.actorId,p_operation_token:input.operationToken,p_drive_folder_id:input.driveFolderId});if(error||typeof data!=="boolean")throw new Error("Hierarchy registry is unavailable.");return data;},
     async finalizeHierarchyFolder(input:FinalizeHierarchyFolderInput){const {data,error}=await supabase.rpc("admin_finalize_document_folder_creation",{p_folder_id:input.folderId,p_actor_id:input.actorId,p_operation_token:input.operationToken});if(error||typeof data!=="boolean")throw new Error("Hierarchy registry is unavailable.");return data;},

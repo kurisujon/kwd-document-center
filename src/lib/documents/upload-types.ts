@@ -22,6 +22,22 @@ export interface ValidatedAdminUpload {
   };
 }
 
+export interface FolderUploadRequestMetadata {
+  document_number: string;
+  document_date: string;
+  subject: string;
+  persons_involved: string;
+}
+
+export interface ValidatedFolderUpload {
+  idempotencyKey: string;
+  targetFolderId: string;
+  sourceRelativePath: string;
+  normalizedRelativePathKey: string;
+  metadata: FolderUploadRequestMetadata;
+  file: ValidatedAdminUpload["file"];
+}
+
 export interface UploadMetadataSnapshot extends AdminDocumentMetadata {
   file_name: string;
   file_type: string;

@@ -10,7 +10,7 @@ export function canSelectBatchFiles(existingCount: number, incomingCount: number
     && existingCount >= 0 && incomingCount >= 0 && existingCount + incomingCount <= maximumBatchUploadFiles;
 }
 
-export type BatchUploadStatus = "QUEUED" | "NEEDS_METADATA" | "READY" | "UPLOADING" | "UPLOADED" | "FAILED" | "INVALID_FILE" | "CANCELLED";
+export type BatchUploadStatus = "QUEUED" | "NEEDS_METADATA" | "READY" | "UPLOADING" | "IN_PROGRESS" | "UPLOADED" | "FAILED" | "INVALID_FILE" | "CANCELLED";
 
 export type BatchUploadItem = {
   localId: string;

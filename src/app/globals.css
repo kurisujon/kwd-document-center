@@ -90,6 +90,8 @@ tbody tr:hover { background: #fafcff; }
 .upload-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.25rem 1rem; max-width: 52rem; padding: 1.5rem; border: 1px solid var(--color-border); background: var(--color-surface); }
 .upload-form .file-field, .upload-form .form-error, .upload-form .form-success, .upload-form .form-actions { grid-column: 1 / -1; }
 .batch-upload { display: grid; gap: 1.25rem; max-width: 100%; padding: 1.5rem; border: 1px solid var(--color-border); background: var(--color-surface); }
+.upload-mode { display: flex; gap: .5rem; margin-bottom: 1rem; }
+.folder-upload-table { min-width: 64rem; }
 .batch-upload .file-field { max-width: 52rem; }
 .batch-defaults { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; padding: 1rem; border: 1px solid var(--color-border); }
 .batch-defaults legend { padding: 0 .35rem; color: var(--color-text-secondary); font-size: .82rem; font-weight: 800; }
