@@ -29,7 +29,7 @@ Object.assign(globalThis, {
   cancelAnimationFrame: (id: number) => clearTimeout(id),
 });
 
-const { cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
+const { act, cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
 const userEvent = (await import("@testing-library/user-event")).default;
 const originalFetch = globalThis.fetch;
 const originalRandomUUID = globalThis.crypto.randomUUID;
@@ -121,9 +121,9 @@ function uploadButton(ui: ReturnType<typeof render>) {
 test("Folder batch progress counts derive from actual per-file states", () => {
   const counts = getFolderUploadBatchCounts([
     { status: "READY" }, { status: "QUEUED" }, { status: "UPLOADING" }, { status: "IN_PROGRESS" },
-    { status: "UPLOADED" }, { status: "UPLOADED" }, { status: "FAILED" }, { status: "INVALID_FILE" }, { status: "NEEDS_METADATA" },
+    { status: "UPLOADED" }, { status: "UPLOADED" }, { status: "FAILED", retryDisposition: "RETRYABLE" }, { status: "FAILED" }, { status: "INVALID_FILE" }, { status: "NEEDS_METADATA" },
   ]);
-  assert.deepEqual(counts, { total: 9, ready: 1, queued: 1, uploading: 1, inProgress: 1, uploaded: 2, failed: 1, invalid: 1, needsMetadata: 1 });
+  assert.deepEqual(counts, { total: 10, ready: 1, queued: 1, uploading: 1, inProgress: 1, uploaded: 2, failed: 2, retryableFailures: 1, blockedFailures: 1, invalid: 1, needsMetadata: 1 });
 });
 
 test("Folder Upload gates the rendered initial action on every included row and recomputes after removal", async () => {
@@ -219,6 +219,7 @@ test("Folder requests preserve queue identity through partial failure, failed re
   await completeMetadata(ui, user);
   await user.click(uploadButton(ui));
   await waitFor(() => assert.match(ui.getByText(/2 of 3 uploaded/).textContent ?? "", /Failed: 1/));
+  assert.match(ui.getByText(/Retry available: 1/).textContent ?? "", /Retry available/);
   const progress = ui.getByRole("progressbar") as HTMLProgressElement;
   assert.equal(progress.max, 3);
   assert.equal(progress.value, 2);
@@ -233,7 +234,7 @@ test("Folder requests preserve queue identity through partial failure, failed re
   assert.equal(failedPath, "C/c.pdf");
   for (const field of ["drive_folder_id", "drive_file_id", "drive_url", "content_sha256", "normalized_relative_path_key", "operation_token", "hierarchy_kind", "logical_key"]) assert.equal(posted[2]!.body.has(field), false, field);
 
-  await user.click(ui.getByRole("button", { name: /Retry pending files \(1\)/ }));
+  await user.click(ui.getByRole("button", { name: /Retry failed files \(1\)/ }));
   await waitFor(() => assert.equal(posted.length, 4));
   assert.equal(posted[3]!.body.get("idempotency_key"), failedFirstKey);
   assert.equal(posted[3]!.body.get("source_relative_path"), failedPath);
@@ -268,12 +269,178 @@ test("Folder mode preserves identity for network and in-progress retries and kee
   await waitFor(() => assert.match(ui.getByText("Failed").textContent ?? "", /Failed/));
   assert.equal((ui.getByRole("button", { name: "Files" }) as HTMLButtonElement).disabled, true, "all-failed workflows remain locked");
   const first = posted[0]!;
-  await user.click(ui.getByRole("button", { name: /Retry pending files \(1\)/ }));
+  await user.click(ui.getByRole("button", { name: /Retry failed files \(1\)/ }));
   await waitFor(() => assert.equal(posted.length, 2));
   const second = posted[1]!;
   for (const key of ["idempotency_key", "target_folder_id", "source_relative_path", "subject", "document_date"]) assert.equal(second.body.get(key), first.body.get(key), key);
   assert.equal(second.file?.name, first.file?.name);
   assert.equal(second.file?.size, first.file?.size);
+});
+
+test("Folder retry UI classifies blocked and authorization failures safely, while a row Retry preserves its request identity", async () => {
+  const blockedPosts = installFetch({ posts: [Response.json({ error: { code: "VALIDATION_ERROR", message: "internal collision diagnostics" } }, { status: 409 })] });
+  const blockedUi = renderUpload();
+  const blockedUser = userEvent.setup({ document: dom.window.document, applyAccept: false });
+  await openFolder(blockedUi, blockedUser);
+  await chooseFolder(blockedUi, blockedUser, [folderFile("Root/Blocked/one.pdf")]);
+  await completeMetadata(blockedUi, blockedUser);
+  await blockedUser.click(uploadButton(blockedUi));
+  await waitFor(() => assert.match(blockedUi.getByText(/conflicts with an existing folder upload/).textContent ?? "", /cannot be retried/));
+  assert.match(blockedUi.getByText(/Needs attention: 1/).textContent ?? "", /Needs attention/);
+  assert.equal(blockedUi.queryByRole("button", { name: "Retry" }), null);
+  assert.equal(blockedUi.queryByRole("button", { name: /Retry failed files/ }), null);
+  assert.equal(blockedUi.queryByText(/internal collision diagnostics/), null);
+  assert.equal(blockedPosts.length, 1);
+
+  cleanup();
+  const authPosts = installFetch({ posts: [Response.json({ error: { code: "FORBIDDEN", message: "permission detail" } }, { status: 403 })] });
+  const authUi = renderUpload();
+  const authUser = userEvent.setup({ document: dom.window.document, applyAccept: false });
+  await openFolder(authUi, authUser);
+  await chooseFolder(authUi, authUser, [folderFile("Root/Auth/one.pdf")]);
+  await completeMetadata(authUi, authUser);
+  await authUser.click(uploadButton(authUi));
+  await waitFor(() => assert.match(authUi.getByText(/session or permissions need attention/).textContent ?? "", /continuing/));
+  assert.equal(authUi.queryByRole("button", { name: "Retry" }), null);
+  assert.equal(authPosts.length, 1);
+
+  cleanup();
+  let resolveRetry!: (response: Response) => void;
+  const retryPosts = installFetch({ posts: [Response.json({ error: { code: "REGISTRY_ERROR" } }, { status: 503 }), new Promise<Response>((resolve) => { resolveRetry = resolve; })] });
+  const retryUi = renderUpload();
+  const retryUser = userEvent.setup({ document: dom.window.document, applyAccept: false });
+  await openFolder(retryUi, retryUser);
+  await chooseFolder(retryUi, retryUser, [folderFile("Root/Retry/one.pdf", "same-file")]);
+  await completeMetadata(retryUi, retryUser);
+  await retryUser.click(uploadButton(retryUi));
+  await waitFor(() => assert.match(retryUi.getByText(/could not be confirmed/).textContent ?? "", /safely retry/));
+  const first = retryPosts[0]!;
+  await retryUser.click(retryUi.getByRole("button", { name: "Retry" }));
+  await waitFor(() => assert.equal(retryPosts.length, 2));
+  assert.equal(retryUi.queryByRole("button", { name: "Retry" }), null, "an active retry cannot be dispatched twice");
+  const second = retryPosts[1]!;
+  for (const key of ["idempotency_key", "target_folder_id", "source_relative_path", "subject", "document_date", "persons_involved"]) assert.equal(second.body.get(key), first.body.get(key), key);
+  assert.equal(second.file?.name, first.file?.name);
+  assert.equal(second.file?.size, first.file?.size);
+  assert.equal(second.file?.type, first.file?.type);
+  resolveRetry(Response.json({ document: { document_id: "retry-complete" } }));
+  await waitFor(() => assert.match(retryUi.getByText("Uploaded").textContent ?? "", /Uploaded/));
+});
+
+test("Retry failed files dispatches only retryable failures from a mixed folder batch", async () => {
+  const posted = installFetch({
+    posts: [
+      Response.json({ error: { code: "REGISTRY_ERROR" } }, { status: 503 }),
+      Response.json({ error: { code: "DRIVE_ERROR" } }, { status: 503 }),
+      Response.json({ error: { code: "VALIDATION_ERROR" } }, { status: 409 }),
+      Response.json({ document: { document_id: "uploaded" } }),
+      Response.json({ error: { code: "UPLOAD_IN_PROGRESS" } }, { status: 409 }),
+      Response.json({ document: { document_id: "retry-a" } }),
+      Response.json({ document: { document_id: "retry-b" } }),
+    ],
+  });
+  const ui = renderUpload();
+  const user = userEvent.setup({ document: dom.window.document, applyAccept: false });
+  await openFolder(ui, user);
+  await chooseFolder(ui, user, [
+    folderFile("Root/A/a.pdf", "a"), folderFile("Root/B/b.pdf", "b"), folderFile("Root/C/conflict.pdf", "c"),
+    folderFile("Root/D/uploaded.pdf", "d"), folderFile("Root/E/pending.pdf", "e"),
+  ]);
+  await completeMetadata(ui, user);
+  await user.click(uploadButton(ui));
+  await waitFor(() => assert.match(ui.getByText(/Failed: 3/).textContent ?? "", /Retry available: 2/));
+  assert.match(ui.getByText(/In progress: 1/).textContent ?? "", /Needs attention: 1/);
+  assert.equal(posted.length, 5);
+  const originals = new Map(posted.map((request) => [String(request.body.get("source_relative_path")), request]));
+
+  await user.click(ui.getByRole("button", { name: "Retry failed files (2)" }));
+  await waitFor(() => assert.equal(posted.length, 7));
+  const retryPaths = posted.slice(5).map((request) => String(request.body.get("source_relative_path"))).sort();
+  assert.deepEqual(retryPaths, ["A/a.pdf", "B/b.pdf"]);
+  for (const request of posted.slice(5)) {
+    const original = originals.get(String(request.body.get("source_relative_path")))!;
+    for (const key of ["idempotency_key", "target_folder_id", "source_relative_path", "subject", "document_date", "persons_involved"]) assert.equal(request.body.get(key), original.body.get(key), key);
+    assert.equal(request.file?.name, original.file?.name);
+    assert.equal(request.file?.size, original.file?.size);
+  }
+  for (const path of ["C/conflict.pdf", "D/uploaded.pdf", "E/pending.pdf"]) assert.equal(posted.filter((request) => request.body.get("source_relative_path") === path).length, 1, path);
+  await waitFor(() => assert.match(ui.getByText(/3 of 5 uploaded/).textContent ?? "", /Failed: 1/));
+});
+
+test("Check again keeps a repeatedly pending row unresolved, cooled down, and on its original request identity", async () => {
+  const posted = installFetch({
+    posts: [
+      Response.json({ error: { code: "UPLOAD_IN_PROGRESS" } }, { status: 409 }),
+      Response.json({ error: { code: "UPLOAD_IN_PROGRESS" } }, { status: 409 }),
+      Response.json({ document: { document_id: "completed-replay" } }),
+    ],
+  });
+  const ui = renderUpload();
+  const user = userEvent.setup({ document: dom.window.document, applyAccept: false });
+  await openFolder(ui, user);
+  await chooseFolder(ui, user, [folderFile("Root/Pending/one.pdf", "same-file")]);
+  await completeMetadata(ui, user);
+  await user.click(uploadButton(ui));
+  await waitFor(() => assert.match(ui.getByText("In progress").textContent ?? "", /In progress/));
+  const first = posted[0]!;
+  const checkAgain = () => ui.getByRole("button", { name: "Check again" }) as HTMLButtonElement;
+  assert.equal(checkAgain().disabled, true);
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 600)); });
+  await user.click(checkAgain());
+  await waitFor(() => assert.equal(posted.length, 2));
+  await waitFor(() => assert.match(ui.getByText("In progress").textContent ?? "", /In progress/));
+  const second = posted[1]!;
+  for (const key of ["idempotency_key", "target_folder_id", "source_relative_path", "subject", "document_date", "persons_involved"]) assert.equal(second.body.get(key), first.body.get(key), key);
+  assert.equal(second.file?.name, first.file?.name);
+  assert.equal(checkAgain().disabled, true, "a repeated pending replay applies a new cooldown");
+  await user.click(checkAgain());
+  assert.equal(posted.length, 2, "disabled Check again cannot dispatch while cooled down");
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 600)); });
+  await user.click(checkAgain());
+  await waitFor(() => assert.equal(posted.length, 3));
+  const third = posted[2]!;
+  for (const key of ["idempotency_key", "target_folder_id", "source_relative_path", "subject", "document_date", "persons_involved"]) assert.equal(third.body.get(key), first.body.get(key), key);
+  await waitFor(() => assert.match(ui.getByText("Uploaded").textContent ?? "", /Uploaded/));
+});
+
+test("Reset warns before discarding unresolved local retry state and otherwise remains local only", async () => {
+  const posted = installFetch({ posts: [Response.json({ error: { code: "UPLOAD_IN_PROGRESS" } }, { status: 409 }), Response.json({ document: { document_id: "reconciled" } })] });
+  const ui = renderUpload();
+  const user = userEvent.setup({ document: dom.window.document, applyAccept: false });
+  await openFolder(ui, user);
+  await chooseFolder(ui, user, [folderFile("Root/Reset/pending.pdf")]);
+  await completeMetadata(ui, user);
+  await user.click(uploadButton(ui));
+  await waitFor(() => assert.match(ui.getByText("In progress").textContent ?? "", /In progress/));
+  const first = posted[0]!;
+
+  await user.click(ui.getByRole("button", { name: "Select another folder" }));
+  assert.match(ui.getByRole("dialog").textContent ?? "", /server may still be processing/);
+  assert.match(ui.getByRole("dialog").textContent ?? "", /does not cancel, delete, or roll back/);
+  await user.click(ui.getByRole("button", { name: "Keep current batch" }));
+  assert.equal(ui.queryByRole("dialog"), null);
+  assert.match(ui.getByText("In progress").textContent ?? "", /In progress/);
+  assert.equal(posted.length, 1);
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 600)); });
+  await user.click(ui.getByRole("button", { name: "Check again" }));
+  await waitFor(() => assert.equal(posted.length, 2));
+  assert.equal(posted[1]!.body.get("idempotency_key"), first.body.get("idempotency_key"));
+  await waitFor(() => assert.match(ui.getByText("Uploaded").textContent ?? "", /Uploaded/));
+
+  cleanup();
+  const discardPosts = installFetch({ posts: [Response.json({ error: { code: "UPLOAD_IN_PROGRESS" } }, { status: 409 })] });
+  const discardUi = renderUpload();
+  const discardUser = userEvent.setup({ document: dom.window.document, applyAccept: false });
+  await openFolder(discardUi, discardUser);
+  await chooseFolder(discardUi, discardUser, [folderFile("Root/Reset/discard.pdf")]);
+  await completeMetadata(discardUi, discardUser);
+  await discardUser.click(uploadButton(discardUi));
+  await waitFor(() => assert.match(discardUi.getByText("In progress").textContent ?? "", /In progress/));
+  await discardUser.click(discardUi.getByRole("button", { name: "Select another folder" }));
+  await discardUser.click(discardUi.getByRole("button", { name: "Discard local batch" }));
+  await waitFor(() => assert.equal(discardUi.queryByRole("table", { name: "Folder upload review" }), null));
+  assert.equal((discardUi.getByLabelText("Upload destination") as HTMLSelectElement).value, "");
+  assert.equal(discardPosts.length, 1, "discard does not issue rollback, delete, or reconciliation requests");
 });
 
 test("Folder mode controls lock while a request is actively uploading", async () => {
@@ -287,6 +454,7 @@ test("Folder mode controls lock while a request is actively uploading", async ()
   await user.click(uploadButton(ui));
   await waitFor(() => assert.equal(posted.length, 1));
   assert.equal((ui.getByRole("button", { name: "Files" }) as HTMLButtonElement).disabled, true);
+  assert.equal((ui.getByRole("button", { name: "Select another folder" }) as HTMLButtonElement).disabled, true, "Reset cannot discard an active request");
   assert.match(ui.getByText("Uploading").textContent ?? "", /Uploading/);
   resolveUpload(Response.json({ document: { document_id: "active-complete" } }));
   await waitFor(() => assert.match(ui.getByText("Uploaded").textContent ?? "", /Uploaded/));
@@ -314,7 +482,10 @@ test("Folder destination states and mode controls behave safely before and after
   await waitFor(() => assert.match(activeUi.getByText("In progress").textContent ?? "", /In progress/));
   assert.equal((activeUi.getByRole("button", { name: "Files" }) as HTMLButtonElement).disabled, true);
   const first = posted[0]!;
-  await activeUser.click(activeUi.getByRole("button", { name: /Retry pending files \(1\)/ }));
+  assert.equal((activeUi.getByRole("button", { name: /Check again \(1\)/ }) as HTMLButtonElement).disabled, true);
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 600)); });
+  await waitFor(() => assert.equal((activeUi.getByRole("button", { name: /Check again \(1\)/ }) as HTMLButtonElement).disabled, false));
+  await activeUser.click(activeUi.getByRole("button", { name: /Check again \(1\)/ }));
   await waitFor(() => assert.equal(posted.length, 2));
   assert.equal(posted[1]!.body.get("idempotency_key"), first.body.get("idempotency_key"));
   assert.equal(posted[1]!.body.get("source_relative_path"), first.body.get("source_relative_path"));

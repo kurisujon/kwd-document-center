@@ -25,7 +25,7 @@ export async function runBatchUploadQueue(input: {
   onQueue?: (localIds: readonly string[]) => void;
   onStart: (localId: string) => void;
   onSuccess: (localId: string, result: BatchUploadResponse) => void;
-  onFailure: (localId: string, message: string) => void;
+  onFailure: (localId: string, message: string, error: unknown) => void;
   concurrency?: number;
 }): Promise<void> {
   const queue = input.items.filter((item) => item.status === "READY");
@@ -40,7 +40,7 @@ export async function runBatchUploadQueue(input: {
       try {
         input.onSuccess(item.localId, await input.upload(item));
       } catch (error) {
-        input.onFailure(item.localId, error instanceof Error ? error.message : "The document could not be uploaded. Please retry.");
+        input.onFailure(item.localId, error instanceof Error ? error.message : "The document could not be uploaded. Please retry.", error);
       }
     }
   }
