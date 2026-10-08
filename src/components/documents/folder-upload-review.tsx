@@ -8,6 +8,17 @@ import { adminUploadAccept } from "@/lib/documents/upload-formats";
 
 type Destination = { destinationId: string; kind: "CATEGORY" | "SUBCATEGORY" | "WORKING_FOLDER"; filingYear: number; category: string; subcategory: string | null; label: string };
 type FolderItem = BatchUploadItem & { sourceRelativePath: string; sourcePathInput: string; attempted: boolean };
+export type FolderUploadBatchCounts = {
+  total: number;
+  ready: number;
+  queued: number;
+  uploading: number;
+  inProgress: number;
+  uploaded: number;
+  failed: number;
+  invalid: number;
+  needsMetadata: number;
+};
 
 export function isFolderWorkflowLocked(items: readonly Pick<FolderItem, "attempted">[]) {
   return items.some((item) => item.attempted);
@@ -17,8 +28,23 @@ export function areAllFolderItemsReady(items: readonly Pick<FolderItem, "status"
   return items.length > 0 && items.every((item) => item.status === "READY");
 }
 
+export function getFolderUploadBatchCounts(items: readonly Pick<BatchUploadItem, "status">[]): FolderUploadBatchCounts {
+  const counts: FolderUploadBatchCounts = { total: items.length, ready: 0, queued: 0, uploading: 0, inProgress: 0, uploaded: 0, failed: 0, invalid: 0, needsMetadata: 0 };
+  for (const item of items) {
+    if (item.status === "READY") counts.ready += 1;
+    else if (item.status === "QUEUED") counts.queued += 1;
+    else if (item.status === "UPLOADING") counts.uploading += 1;
+    else if (item.status === "IN_PROGRESS") counts.inProgress += 1;
+    else if (item.status === "UPLOADED") counts.uploaded += 1;
+    else if (item.status === "FAILED") counts.failed += 1;
+    else if (item.status === "INVALID_FILE") counts.invalid += 1;
+    else if (item.status === "NEEDS_METADATA") counts.needsMetadata += 1;
+  }
+  return counts;
+}
+
 function statusLabel(status: BatchUploadStatus) {
-  return ({ QUEUED: "Needs metadata", NEEDS_METADATA: "Needs metadata", READY: "Ready", UPLOADING: "Uploading", IN_PROGRESS: "In progress", UPLOADED: "Uploaded", FAILED: "Failed", INVALID_FILE: "Invalid file", CANCELLED: "Cancelled" })[status];
+  return ({ QUEUED: "Queued", NEEDS_METADATA: "Needs metadata", READY: "Ready", UPLOADING: "Uploading", IN_PROGRESS: "In progress", UPLOADED: "Uploaded", FAILED: "Failed", INVALID_FILE: "Invalid file", CANCELLED: "Cancelled" })[status];
 }
 
 function issueMessage(issue: FolderSelectionIssue | undefined) {
@@ -41,7 +67,7 @@ export function FolderUploadReview({ maxBytes, onWorkflowLockChange }: { maxByte
   const pickerRef = useRef<HTMLInputElement>(null);
   const destination = destinationState.values.find((value) => value.destinationId === destinationId);
   const attempted = isFolderWorkflowLocked(items);
-  const counts = useMemo(() => ({ ready: items.filter((item) => item.status === "READY").length, active: items.filter((item) => item.status === "UPLOADING").length, inProgress: items.filter((item) => item.status === "IN_PROGRESS").length, uploaded: items.filter((item) => item.status === "UPLOADED").length, failed: items.filter((item) => item.status === "FAILED").length, invalid: items.filter((item) => item.status === "INVALID_FILE").length }), [items]);
+  const counts = useMemo(() => getFolderUploadBatchCounts(items), [items]);
 
   useEffect(() => {
     let current = true;
@@ -111,6 +137,10 @@ export function FolderUploadReview({ maxBytes, onWorkflowLockChange }: { maxByte
       setUploading(true);
       try {
         await runBatchUploadQueue({ items: source, concurrency: batchUploadConcurrency, upload: submitOne,
+          onQueue: (ids) => {
+            const queued = new Set(ids);
+            setItems((current) => current.map((item) => queued.has(item.localId) && item.status === "READY" ? { ...item, status: "QUEUED" } : item));
+          },
           onStart: (id) => setItems((current) => current.map((item) => item.localId === id ? { ...item, attempted: true, status: "UPLOADING", error: undefined } : item)),
           onSuccess: (id, result) => setItems((current) => current.map((item) => item.localId === id ? { ...item, status: result.inProgress ? "IN_PROGRESS" : "UPLOADED", documentId: result.documentId || undefined, error: result.inProgress ? "Folder upload is still in progress. Retry later with the same file." : undefined } : item)),
           onFailure: (id, error) => setItems((current) => current.map((item) => item.localId === id ? { ...item, status: "FAILED", error } : item)),
@@ -148,7 +178,10 @@ export function FolderUploadReview({ maxBytes, onWorkflowLockChange }: { maxByte
     <label className="field file-field">Folder<input ref={pickerRef} aria-label="Select a folder" type="file" multiple accept={adminUploadAccept} disabled={uploading || attempted} {...({ webkitdirectory: "" } as { webkitdirectory: string })} onChange={(event) => { selectFolder(event.target.files); event.currentTarget.value = ""; }} /><span>Folder selection is supported in Chrome and Edge. Empty folders are not included.</span></label>
     {manifestError && <p className="form-error" role="alert">{manifestError}</p>}
     {items.length > 0 && <>
-      <p className="batch-summary" role="status" aria-live="polite">Folder: {rootName} · Files: {items.length} · Total: {Math.ceil(entries.reduce((total, entry) => total + entry.file.size, 0) / 1024)} KiB · Directories: {directoryCount} · Ready: {counts.ready} · Uploading: {counts.active} · In progress: {counts.inProgress} · Uploaded: {counts.uploaded} · Failed: {counts.failed}</p>
+      <div className="batch-progress" aria-labelledby="folder-upload-progress-summary">
+        <progress value={counts.uploaded} max={counts.total} aria-label={`Folder upload progress: ${counts.uploaded} of ${counts.total} uploaded`}>{counts.uploaded} of {counts.total}</progress>
+        <p id="folder-upload-progress-summary" className="batch-summary" role="status" aria-live="polite">Folder: {rootName} · {counts.uploaded} of {counts.total} uploaded · Total: {Math.ceil(entries.reduce((total, entry) => total + entry.file.size, 0) / 1024)} KiB · Directories: {directoryCount} · Ready: {counts.ready} · Queued: {counts.queued} · Uploading: {counts.uploading} · In progress: {counts.inProgress} · Failed: {counts.failed} · Needs metadata: {counts.needsMetadata} · Invalid: {counts.invalid}</p>
+      </div>
       <section className="table-wrap batch-table-wrap" aria-label="Folder upload review"><table className="batch-table folder-upload-table"><thead><tr><th>File</th><th>Relative path</th><th>Metadata</th><th>Status</th><th>Actions</th></tr></thead><tbody>{items.map((item) => <tr key={item.localId}><td><strong>{item.file.name}</strong><span className="batch-file-size">{Math.ceil(item.file.size / 1024)} KiB</span></td><td>{item.sourceRelativePath}</td><td><label className="field">Number <span className="optional">Optional</span><input value={item.metadata.document_number} maxLength={150} disabled={item.attempted || uploading || item.status === "INVALID_FILE"} onChange={(event) => updateItem(item.localId, (current) => ({ ...current, metadata: { ...current.metadata, document_number: event.target.value } }))} /></label><label className="field">Subject<input value={item.metadata.subject} maxLength={500} disabled={item.attempted || uploading || item.status === "INVALID_FILE"} onChange={(event) => updateItem(item.localId, (current) => ({ ...current, metadata: { ...current.metadata, subject: event.target.value } }))} /></label><label className="field">Date<input type="date" value={item.metadata.document_date} disabled={item.attempted || uploading || item.status === "INVALID_FILE"} onChange={(event) => updateItem(item.localId, (current) => ({ ...current, metadata: { ...current.metadata, document_date: event.target.value } }))} /></label><label className="field">Persons <span className="optional">Optional</span><input value={item.metadata.persons_involved} maxLength={500} disabled={item.attempted || uploading || item.status === "INVALID_FILE"} onChange={(event) => updateItem(item.localId, (current) => ({ ...current, metadata: { ...current.metadata, persons_involved: event.target.value } }))} /></label></td><td><span className={`batch-status batch-status-${item.status.toLowerCase()}`}>{statusLabel(item.status)}</span>{item.error && <p className="batch-row-error" role="alert">{item.error}</p>}</td><td>{!attempted && <button className="button button-secondary table-button" type="button" disabled={uploading} onClick={() => removeItem(item.localId)}>Remove</button>}</td></tr>)}</tbody></table></section>
       {!canStartInitialBatch && !attempted && <p className="notice">Choose a destination and complete metadata for every included file before uploading.</p>}
       <div className="form-actions batch-submit-actions"><button className="button button-primary" type="button" disabled={uploading || !canStartInitialBatch} onClick={() => void startQueue(items)}>{uploading ? "Uploading folder files…" : `Upload folder files (${items.length})`}</button>{(counts.failed + counts.inProgress) > 0 && <button className="button button-secondary" type="button" disabled={uploading} onClick={retryPending}>Retry pending files ({counts.failed + counts.inProgress})</button>}<button className="button button-secondary" type="button" disabled={uploading} onClick={reset}>Select another folder</button></div>

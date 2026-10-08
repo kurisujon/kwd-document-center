@@ -3,6 +3,7 @@ import test, { afterEach } from "node:test";
 import { JSDOM } from "jsdom";
 import React from "react";
 import { AdminUploadForm } from "../src/components/documents/admin-upload-form.tsx";
+import { getFolderUploadBatchCounts } from "../src/components/documents/folder-upload-review.tsx";
 import { adminCategories } from "../src/lib/documents/admin-categories.ts";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost" });
@@ -117,6 +118,14 @@ function uploadButton(ui: ReturnType<typeof render>) {
   return ui.getByRole("button", { name: /Upload folder files/ }) as HTMLButtonElement;
 }
 
+test("Folder batch progress counts derive from actual per-file states", () => {
+  const counts = getFolderUploadBatchCounts([
+    { status: "READY" }, { status: "QUEUED" }, { status: "UPLOADING" }, { status: "IN_PROGRESS" },
+    { status: "UPLOADED" }, { status: "UPLOADED" }, { status: "FAILED" }, { status: "INVALID_FILE" }, { status: "NEEDS_METADATA" },
+  ]);
+  assert.deepEqual(counts, { total: 9, ready: 1, queued: 1, uploading: 1, inProgress: 1, uploaded: 2, failed: 1, invalid: 1, needsMetadata: 1 });
+});
+
 test("Folder Upload gates the rendered initial action on every included row and recomputes after removal", async () => {
   installFetch({});
   const ui = renderUpload();
@@ -209,7 +218,10 @@ test("Folder requests preserve queue identity through partial failure, failed re
   await chooseFolder(ui, user, [folderFile("Root/A/a.pdf", "a"), folderFile("Root/B/b.pdf", "b"), folderFile("Root/C/c.pdf", "c")]);
   await completeMetadata(ui, user);
   await user.click(uploadButton(ui));
-  await waitFor(() => assert.match(ui.getByText(/Uploaded: 2/).textContent ?? "", /Failed: 1/));
+  await waitFor(() => assert.match(ui.getByText(/2 of 3 uploaded/).textContent ?? "", /Failed: 1/));
+  const progress = ui.getByRole("progressbar") as HTMLProgressElement;
+  assert.equal(progress.max, 3);
+  assert.equal(progress.value, 2);
 
   for (const mode of ["Files", "Folder"]) assert.equal((ui.getByRole("button", { name: mode }) as HTMLButtonElement).disabled, true);
   assert.equal((ui.getByLabelText("Upload destination") as HTMLSelectElement).disabled, true);
@@ -228,7 +240,7 @@ test("Folder requests preserve queue identity through partial failure, failed re
   assert.equal(posted[3]!.body.get("target_folder_id"), destination.destinationId);
   assert.equal(posted.slice(0, 3).filter((request) => request.body.get("source_relative_path") === "A/a.pdf").length, 1);
   assert.equal(posted.slice(0, 3).filter((request) => request.body.get("source_relative_path") === "B/b.pdf").length, 1);
-  await waitFor(() => assert.match(ui.getByText(/Uploaded: 3/).textContent ?? "", /Failed: 0/));
+  await waitFor(() => assert.match(ui.getByText(/3 of 3 uploaded/).textContent ?? "", /Failed: 0/));
   assert.equal((ui.getByRole("button", { name: "Files" }) as HTMLButtonElement).disabled, true, "all-success workflows remain locked until reset");
 
   await user.click(ui.getByRole("button", { name: "Select another folder" }));
