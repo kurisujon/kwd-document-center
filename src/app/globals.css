@@ -115,6 +115,13 @@ tbody tr:hover { background: #fafcff; }
 .batch-row-success { margin: .5rem 0 0; color: var(--color-success); font-size: .8rem; font-weight: 700; }
 .batch-submit-actions { display: flex; flex-wrap: wrap; gap: .75rem; }
 .csv-metadata-actions, .csv-preview { margin-top: 1rem; padding: 1rem; border: 1px solid var(--color-border); background: var(--color-surface); }
+.bulk-metadata-actions { margin-top: 1rem; padding: 1rem; border: 1px solid var(--color-border); background: var(--color-surface); }
+.bulk-metadata-actions h3 { margin: 0; font-size: 1rem; }
+.bulk-metadata-actions > p { margin: .35rem 0 .75rem; color: var(--color-text-secondary); }
+.bulk-metadata-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; margin: 1rem 0 0; padding: .75rem; border: 1px solid var(--color-border); }
+.bulk-field { min-width: 0; margin: 0; }
+.bulk-field > label { display: flex; gap: .4rem; align-items: center; font-weight: 700; }
+.bulk-field input:not([type="checkbox"]) { width: 100%; margin-top: .35rem; }
 .csv-metadata-actions h3, .csv-preview h3 { margin: 0; font-size: 1rem; }
 .csv-metadata-actions > p { margin: .35rem 0 .75rem; color: var(--color-text-secondary); }
 .csv-import-button { display: inline-flex; align-items: center; cursor: pointer; }
@@ -157,4 +164,4 @@ tbody tr:hover { background: #fafcff; }
 .button-danger:hover { background: var(--color-error-hover); }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 @media (max-width: 960px) { .search-panel { grid-template-columns: minmax(14rem, 1fr) 11rem 11rem; } }
-@media (max-width: 760px) { .app-shell { grid-template-columns: 1fr; } .sidebar { padding: .9rem 1rem; } .sidebar-subtitle, .sidebar-footer { display: none; } .nav-list { display: flex; overflow-x: auto; margin-top: .75rem; } .nav-link { white-space: nowrap; } .nav-divider { display: none; } .app-main { padding: 1.5rem 1rem; } .page-heading { display: grid; } .search-panel, .user-form, .batch-defaults { grid-template-columns: 1fr; } .pagination, .confirmation-panel { align-items: flex-start; flex-direction: column; } .document-detail dl, .upload-form { grid-template-columns: 1fr; } .users-table-wrap, .batch-table-wrap { margin-inline: -1rem; border-inline: 0; } }
+@media (max-width: 760px) { .app-shell { grid-template-columns: 1fr; } .sidebar { padding: .9rem 1rem; } .sidebar-subtitle, .sidebar-footer { display: none; } .nav-list { display: flex; overflow-x: auto; margin-top: .75rem; } .nav-link { white-space: nowrap; } .nav-divider { display: none; } .app-main { padding: 1.5rem 1rem; } .page-heading { display: grid; } .search-panel, .user-form, .batch-defaults, .bulk-metadata-fields { grid-template-columns: 1fr; } .pagination, .confirmation-panel { align-items: flex-start; flex-direction: column; } .document-detail dl, .upload-form { grid-template-columns: 1fr; } .users-table-wrap, .batch-table-wrap { margin-inline: -1rem; border-inline: 0; } }

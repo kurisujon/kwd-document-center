@@ -273,6 +273,88 @@ test("Folder CSV import checks the file size before reading and keeps a visible 
   assert.equal(control.matches(":focus-within"), false);
 });
 
+test("Folder bulk metadata applies only selected rows, preserves document numbers, and clears explicitly", async () => {
+  const generated = useDeterministicUUIDs();
+  const posted = installFetch({});
+  const ui = renderUpload();
+  const user = userEvent.setup({ document: dom.window.document, applyAccept: false });
+  await openFolder(ui, user);
+  await chooseFolder(ui, user, [folderFile("Root/A/a.pdf"), folderFile("Root/B/b.pdf"), folderFile("Root/C/c.pdf")]);
+  await completeMetadata(ui, user);
+  const numbers = ui.getAllByLabelText(/Number/) as HTMLInputElement[];
+  await user.type(numbers[0]!, "A-001");
+  const originalThirdSubject = (ui.getAllByLabelText("Subject") as HTMLInputElement[])[2]!.value;
+  await user.click(ui.getByRole("checkbox", { name: "Select A/a.pdf" }));
+  await user.click(ui.getByRole("checkbox", { name: "Select B/b.pdf" }));
+  assert.match(ui.getByText("2 eligible files selected.").textContent ?? "", /2 eligible/);
+  await user.click(ui.getByRole("checkbox", { name: "Bulk apply subject" }));
+  await user.click(ui.getByRole("checkbox", { name: "Bulk apply document date" }));
+  await user.type(ui.getByLabelText("Bulk subject"), "Bulk subject");
+  fireEvent.change(ui.getByLabelText("Bulk document date"), { target: { value: "2027-03-04" } });
+  await user.click(ui.getByRole("button", { name: "Apply to Selected" }));
+  await waitFor(() => assert.match(ui.getByText(/Bulk metadata was applied/).textContent ?? "", /applied/));
+  const subjects = ui.getAllByLabelText("Subject") as HTMLInputElement[];
+  const dates = ui.getAllByLabelText("Date") as HTMLInputElement[];
+  assert.deepEqual(subjects.map((input) => input.value), ["Bulk subject", "Bulk subject", originalThirdSubject]);
+  assert.deepEqual(dates.map((input) => input.value), ["2027-03-04", "2027-03-04", "2027-01-02"]);
+  assert.equal(numbers[0]!.value, "A-001");
+  assert.equal(generated.length, 6, "bulk edits retain existing row and idempotency identities");
+  assert.equal(posted.length, 0, "bulk metadata does not initiate uploading");
+
+  await user.click(ui.getByRole("button", { name: "Clear Selected Fields" }));
+  await waitFor(() => assert.match(ui.getAllByText("Needs metadata")[0]!.textContent ?? "", /Needs metadata/));
+  assert.deepEqual((ui.getAllByLabelText("Subject") as HTMLInputElement[]).map((input) => input.value), ["", "", originalThirdSubject]);
+});
+
+test("Folder bulk selection excludes invalid rows, supports select all and clear selection, and locks after attempts", async () => {
+  let resolveUpload!: (response: Response) => void;
+  const posted = installFetch({ posts: [new Promise<Response>((resolve) => { resolveUpload = resolve; })] });
+  const ui = renderUpload();
+  const user = userEvent.setup({ document: dom.window.document, applyAccept: false });
+  await openFolder(ui, user);
+  await chooseFolder(ui, user, [folderFile("Root/good.pdf"), folderFile("Root/not-allowed.exe")]);
+  await completeMetadata(ui, user);
+  assert.equal((ui.getByRole("checkbox", { name: "Select not-allowed.exe" }) as HTMLInputElement).disabled, true);
+  await user.click(ui.getByRole("button", { name: "Select All eligible files" }));
+  assert.match(ui.getByText("1 eligible file selected.").textContent ?? "", /1 eligible/);
+  await user.click(ui.getByRole("button", { name: "Clear Selection" }));
+  assert.match(ui.getByText("0 eligible files selected.").textContent ?? "", /0 eligible/);
+  await user.click(ui.getByRole("checkbox", { name: "Select good.pdf" }));
+  await user.click(ui.getByRole("checkbox", { name: "Bulk apply subject" }));
+  await user.type(ui.getByLabelText("Bulk subject"), "Locked later");
+  await user.click(ui.getByRole("button", { name: "Apply to Selected" }));
+  await user.click(ui.getAllByRole("button", { name: "Remove" })[1]!);
+  await waitFor(() => assert.equal(posted.length, 0));
+  await user.click(ui.getByRole("button", { name: "Upload folder files (1)" }));
+  await waitFor(() => assert.equal(posted.length, 1));
+  await waitFor(() => assert.equal((ui.getByRole("checkbox", { name: "Bulk apply subject" }) as HTMLInputElement).matches(":disabled"), true));
+  assert.equal((ui.getByRole("button", { name: "Apply to Selected" }) as HTMLButtonElement).disabled, true);
+  resolveUpload(Response.json({ document: { document_id: "bulk-lock" } }));
+  await waitFor(() => assert.match(ui.getByText("Uploaded").textContent ?? "", /Uploaded/));
+});
+
+test("Folder results CSV downloads a local snapshot without dispatching upload requests", async () => {
+  const posted = installFetch({});
+  const ui = renderUpload();
+  const user = userEvent.setup({ document: dom.window.document, applyAccept: false });
+  await openFolder(ui, user);
+  await chooseFolder(ui, user, [folderFile("Root/Report/report.pdf")]);
+  await completeMetadata(ui, user);
+  let report: Blob | undefined;
+  const descriptor = Object.getOwnPropertyDescriptor(URL, "createObjectURL");
+  Object.defineProperty(URL, "createObjectURL", { configurable: true, value: (blob: Blob) => { report = blob; return "blob:report"; } });
+  try {
+    await user.click(ui.getByRole("button", { name: "Download Results CSV" }));
+    assert.ok(report);
+    assert.match(await report.text(), /relative_path,filename,document_number,subject,document_date,persons_involved,status,safe_error_code,safe_error_message/);
+    assert.match(await report.text(), /Report\/report\.pdf/);
+    assert.equal(posted.length, 0);
+  } finally {
+    if (descriptor) Object.defineProperty(URL, "createObjectURL", descriptor);
+    else Reflect.deleteProperty(URL, "createObjectURL");
+  }
+});
+
 test("removing a colliding path recomputes survivor validation while preserving its logical row", async () => {
   const generated = useDeterministicUUIDs();
   const posted = installFetch({});
@@ -290,7 +372,7 @@ test("removing a colliding path recomputes survivor validation while preserving 
   const number = ui.getByLabelText(/Number/) as HTMLInputElement;
   const subject = ui.getByLabelText("Subject") as HTMLInputElement;
   const date = ui.getByLabelText("Date") as HTMLInputElement;
-  const persons = ui.getByLabelText(/Persons/) as HTMLInputElement;
+  const persons = (ui.getAllByLabelText(/Persons/) as HTMLInputElement[]).find((input) => input.maxLength === 500)!;
   assert.equal(subject.disabled, false, "the former collision row is re-evaluated as metadata-incomplete, not stale-invalid");
   await user.type(number, "DOC-007");
   await user.type(subject, "Preserved survivor metadata");

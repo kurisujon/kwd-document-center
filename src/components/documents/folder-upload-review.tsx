@@ -5,7 +5,9 @@ import { createBatchUploadItem, deriveBatchItemStatus, batchUploadConcurrency, t
 import { createBatchUploadRunGuard, runBatchUploadQueue } from "@/lib/documents/batch-upload-queue";
 import { parseFolderSelection, type FolderSelectionIssue, type FolderSelectionIssueCode } from "@/lib/documents/folder-upload-validation";
 import { classifyFolderUploadFailure, isFolderUploadRetryable, type FolderUploadRetryDisposition } from "@/lib/documents/folder-upload-retry";
-import { FolderUploadCsvError, buildFolderUploadCsvPreview, createFolderUploadCsvTemplate, folderUploadCsvMaxBytes, parseFolderUploadCsv, type FolderUploadCsvPreview } from "@/lib/documents/folder-upload-csv";
+import { FolderUploadCsvError, buildFolderUploadCsvPreview, createFolderUploadCsvTemplate, createFolderUploadResultsCsv, folderUploadCsvMaxBytes, parseFolderUploadCsv, type FolderUploadCsvPreview } from "@/lib/documents/folder-upload-csv";
+import { isFolderBulkEditable, selectedFolderBulkIds, validateFolderBulkValues, type FolderBulkMetadataField, type FolderBulkMetadataValues } from "@/lib/documents/folder-upload-bulk";
+import { toFolderUploadResultsCsvRow } from "@/lib/documents/folder-upload-results";
 import { adminUploadAccept } from "@/lib/documents/upload-formats";
 
 type Destination = { destinationId: string; kind: "CATEGORY" | "SUBCATEGORY" | "WORKING_FOLDER"; filingYear: number; category: string; subcategory: string | null; label: string };
@@ -68,6 +70,7 @@ function destinationMetadata(destination: Destination) {
 }
 
 const csvFieldLabels = { document_number: "Document number", subject: "Subject", document_date: "Document date", persons_involved: "Persons involved" } as const;
+const bulkFieldLabels: Record<FolderBulkMetadataField, string> = { subject: "Subject", document_date: "Document date", persons_involved: "Persons involved" };
 
 class FolderUploadRequestError extends Error {
   constructor(readonly status: number, readonly code?: string) {
@@ -83,6 +86,10 @@ export function FolderUploadReview({ maxBytes, onWorkflowLockChange }: { maxByte
   const [manifestError, setManifestError] = useState<string>();
   const [csvPreview, setCsvPreview] = useState<FolderUploadCsvPreview>();
   const [csvFeedback, setCsvFeedback] = useState<string>();
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkFields, setBulkFields] = useState<Set<FolderBulkMetadataField>>(new Set());
+  const [bulkValues, setBulkValues] = useState<FolderBulkMetadataValues>({ subject: "", document_date: "", persons_involved: "" });
+  const [bulkFeedback, setBulkFeedback] = useState<string>();
   const [uploading, setUploading] = useState(false);
   const [resetConfirmationOpen, setResetConfirmationOpen] = useState(false);
   const [recheckClock, setRecheckClock] = useState(0);
@@ -118,7 +125,7 @@ export function FolderUploadReview({ maxBytes, onWorkflowLockChange }: { maxByte
     setManifestError(manifest.issues[0] ? issueMessage(manifest.issues[0]) : undefined);
     setCsvPreview(undefined); setCsvFeedback(undefined);
     const defaults = selectedDestination ? destinationMetadata(selectedDestination) : undefined;
-    setItems(manifest.files.map((candidate) => {
+    const nextItems = manifest.files.map((candidate) => {
       const source = nextEntries[candidate.index]!;
       const existing = preserveExisting ? items.find((item) => item.file === source.file && item.sourcePathInput === source.path) : undefined;
       const validationIssue = candidate.issues[0];
@@ -129,7 +136,9 @@ export function FolderUploadReview({ maxBytes, onWorkflowLockChange }: { maxByte
       }
       const item = createBatchUploadItem(source.file, defaults ?? { document_type: "BACTI TEST", filing_year: null, filing_subcategory: "", document_date: "", persons_involved: "" }, crypto.randomUUID(), maxBytes);
       return { ...item, sourceRelativePath: candidate.relativePath ?? candidate.name, sourcePathInput: source.path, attempted: false, ...(validationIssue ? { status: "INVALID_FILE" as const, error: issueMessage(validationIssue) } : {}) };
-    }));
+    });
+    setItems(nextItems);
+    setSelectedIds((current) => new Set(nextItems.filter((item) => current.has(item.localId) && isFolderBulkEditable(item)).map((item) => item.localId)));
   }
 
   function selectFolder(files: FileList | null) {
@@ -138,7 +147,7 @@ export function FolderUploadReview({ maxBytes, onWorkflowLockChange }: { maxByte
   }
 
   function updateItem(localId: string, change: (item: FolderItem) => FolderItem) {
-    setCsvPreview(undefined); setCsvFeedback(undefined);
+    setCsvPreview(undefined); setCsvFeedback(undefined); setBulkFeedback(undefined);
     setItems((current) => current.map((item) => item.localId === localId && !item.attempted ? (() => { const changed = change(item); return { ...changed, status: deriveBatchItemStatus(changed, maxBytes) }; })() : item));
   }
 
@@ -186,6 +195,39 @@ export function FolderUploadReview({ maxBytes, onWorkflowLockChange }: { maxByte
     setCsvPreview(undefined);
   }
 
+  const eligibleBulkItems = items.filter(isFolderBulkEditable);
+  const selectedBulkIds = selectedFolderBulkIds(items, selectedIds);
+
+  function toggleBulkField(field: FolderBulkMetadataField, checked: boolean) {
+    setBulkFields((current) => { const next = new Set(current); if (checked) next.add(field); else next.delete(field); return next; });
+  }
+
+  function applyBulkMetadata(action: "APPLY" | "CLEAR") {
+    if (attempted || uploading || !selectedBulkIds.size) return;
+    const validation = validateFolderBulkValues(bulkFields, bulkValues, action);
+    if (validation) { setBulkFeedback(validation); return; }
+    const fields = new Set(bulkFields);
+    setItems((current) => current.map((item) => {
+      if (!selectedBulkIds.has(item.localId) || !isFolderBulkEditable(item)) return item;
+      const metadata = { ...item.metadata };
+      for (const field of fields) metadata[field] = action === "CLEAR" ? "" : bulkValues[field].trim();
+      const changed = { ...item, metadata };
+      return { ...changed, status: deriveBatchItemStatus(changed, maxBytes) };
+    }));
+    setCsvPreview(undefined); setCsvFeedback(undefined); setBulkFeedback(action === "CLEAR" ? "Selected metadata fields were cleared." : "Bulk metadata was applied to selected files.");
+  }
+
+  function downloadResultsCsv() {
+    if (!items.length) return;
+    const rows = items.map((item) => toFolderUploadResultsCsvRow({ sourceRelativePath: item.sourceRelativePath, fileName: item.file.name, status: item.status, retryDisposition: item.retryDisposition, metadata: item.metadata }));
+    const blob = new Blob([createFolderUploadResultsCsv(rows)], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url; link.download = "kwd-folder-upload-results.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
   async function submitOne(item: BatchUploadItem) {
     const folderItem = item as FolderItem;
     if (!destination) throw new Error("Choose an upload destination.");
@@ -218,7 +260,7 @@ export function FolderUploadReview({ maxBytes, onWorkflowLockChange }: { maxByte
             const queued = new Set(ids);
             setItems((current) => current.map((item) => queued.has(item.localId) && item.status !== "UPLOADED" ? { ...item, status: "QUEUED", retryDisposition: undefined } : item));
           },
-          onStart: (id) => setItems((current) => current.map((item) => item.localId === id ? { ...item, attempted: true, status: "UPLOADING", error: undefined, recheckAvailableAt: undefined } : item)),
+          onStart: (id) => { setSelectedIds(new Set()); setItems((current) => current.map((item) => item.localId === id ? { ...item, attempted: true, status: "UPLOADING", error: undefined, recheckAvailableAt: undefined } : item)); },
           onSuccess: (id, result) => {
             const now = Date.now();
             setRecheckClock(now);
@@ -259,7 +301,7 @@ export function FolderUploadReview({ maxBytes, onWorkflowLockChange }: { maxByte
 
   function discardLocalBatch() {
     if (uploading) return;
-    setEntries([]); setItems([]); setManifestError(undefined); setCsvPreview(undefined); setCsvFeedback(undefined); setDestinationId("");
+    setEntries([]); setItems([]); setManifestError(undefined); setCsvPreview(undefined); setCsvFeedback(undefined); setSelectedIds(new Set()); setBulkFields(new Set()); setBulkFeedback(undefined); setDestinationId("");
     setResetConfirmationOpen(false);
     if (pickerRef.current) pickerRef.current.value = "";
   }
@@ -285,9 +327,10 @@ export function FolderUploadReview({ maxBytes, onWorkflowLockChange }: { maxByte
         <progress value={counts.uploaded} max={counts.total} aria-label={`Folder upload progress: ${counts.uploaded} of ${counts.total} uploaded`}>{counts.uploaded} of {counts.total}</progress>
         <p id="folder-upload-progress-summary" className="batch-summary" role="status" aria-live="polite">Folder: {rootName} · {counts.uploaded} of {counts.total} uploaded · Total: {Math.ceil(entries.reduce((total, entry) => total + entry.file.size, 0) / 1024)} KiB · Directories: {directoryCount} · Ready: {counts.ready} · Queued: {counts.queued} · Uploading: {counts.uploading} · In progress: {counts.inProgress} · Failed: {counts.failed} · Retry available: {counts.retryableFailures} · Needs attention: {counts.blockedFailures} · Needs metadata: {counts.needsMetadata} · Invalid: {counts.invalid}</p>
       </div>
-      <section className="csv-metadata-actions" aria-labelledby="csv-metadata-title"><h3 id="csv-metadata-title">CSV metadata</h3><p>Download the template, complete metadata in a spreadsheet, then import it for review before applying changes.</p><div className="form-actions"><button className="button button-secondary" type="button" disabled={uploading || attempted} onClick={downloadCsvTemplate}>Download CSV Template</button><label className="button button-secondary csv-import-button">Import CSV<input ref={csvPickerRef} aria-label="Import CSV metadata" type="file" accept=".csv,text/csv" disabled={uploading || attempted} onChange={(event) => void importCsv(event.target.files)} /></label></div>{csvFeedback && <p className={csvFeedback.startsWith("Metadata applied") ? "form-success" : "form-error"} role={csvFeedback.startsWith("Metadata applied") ? "status" : "alert"}>{csvFeedback}</p>}</section>
+      <section className="csv-metadata-actions" aria-labelledby="csv-metadata-title"><h3 id="csv-metadata-title">CSV metadata</h3><p>Download the template, complete metadata in a spreadsheet, then import it for review before applying changes.</p><div className="form-actions"><button className="button button-secondary" type="button" disabled={uploading || attempted} onClick={downloadCsvTemplate}>Download CSV Template</button><label className="button button-secondary csv-import-button">Import CSV<input ref={csvPickerRef} aria-label="Import CSV metadata" type="file" accept=".csv,text/csv" disabled={uploading || attempted} onChange={(event) => void importCsv(event.target.files)} /></label><button className="button button-secondary" type="button" onClick={downloadResultsCsv}>Download Results CSV</button></div>{csvFeedback && <p className={csvFeedback.startsWith("Metadata applied") ? "form-success" : "form-error"} role={csvFeedback.startsWith("Metadata applied") ? "status" : "alert"}>{csvFeedback}</p>}</section>
       {csvPreview && <section className="csv-preview" aria-labelledby="csv-preview-title"><div className="section-heading"><h3 id="csv-preview-title">CSV import preview</h3><p>{csvPreview.rowsParsed} CSV row{csvPreview.rowsParsed === 1 ? "" : "s"} parsed · {csvPreview.matchedFiles} file{csvPreview.matchedFiles === 1 ? "" : "s"} matched · {csvPreview.selectedFilesWithoutRows.length} selected file{csvPreview.selectedFilesWithoutRows.length === 1 ? "" : "s"} without a CSV row.</p></div>{csvPreview.selectedFilesWithoutRows.length > 0 && <p className="notice">Files without CSV rows keep their current metadata.</p>}<section className="table-wrap batch-table-wrap" aria-label="CSV metadata preview"><table className="batch-table"><thead><tr><th>File</th><th>Field</th><th>Current value</th><th>Imported value</th><th>Result</th></tr></thead><tbody>{csvPreview.updates.flatMap((update) => update.changes.length ? update.changes.map((change) => <tr key={`${update.localId}-${change.field}`}><td>{update.relativePath}</td><td>{csvFieldLabels[change.field]}</td><td>{change.currentValue || "—"}</td><td>{change.importedValue}</td><td>Will update</td></tr>) : [<tr key={`${update.localId}-unchanged`}><td>{update.relativePath}</td><td colSpan={3}>No nonblank CSV values will change this file.</td><td>Unchanged</td></tr>])}</tbody></table></section><div className="form-actions"><button className="button button-primary" type="button" disabled={uploading || attempted || !csvPreview.updates.some((update) => update.changes.length > 0)} onClick={applyCsvMetadata}>Apply Metadata</button><button className="button button-secondary" type="button" disabled={uploading} onClick={() => { setCsvPreview(undefined); setCsvFeedback(undefined); }}>Cancel Import</button></div></section>}
-      <section className="table-wrap batch-table-wrap" aria-label="Folder upload review"><table className="batch-table folder-upload-table"><thead><tr><th>File</th><th>Relative path</th><th>Metadata</th><th>Status</th><th>Actions</th></tr></thead><tbody>{items.map((item) => <tr key={item.localId}><td><strong>{item.file.name}</strong><span className="batch-file-size">{Math.ceil(item.file.size / 1024)} KiB</span></td><td>{item.sourceRelativePath}</td><td><label className="field">Number <span className="optional">Optional</span><input value={item.metadata.document_number} maxLength={150} disabled={item.attempted || uploading || item.status === "INVALID_FILE"} onChange={(event) => updateItem(item.localId, (current) => ({ ...current, metadata: { ...current.metadata, document_number: event.target.value } }))} /></label><label className="field">Subject<input value={item.metadata.subject} maxLength={500} disabled={item.attempted || uploading || item.status === "INVALID_FILE"} onChange={(event) => updateItem(item.localId, (current) => ({ ...current, metadata: { ...current.metadata, subject: event.target.value } }))} /></label><label className="field">Date<input type="date" value={item.metadata.document_date} disabled={item.attempted || uploading || item.status === "INVALID_FILE"} onChange={(event) => updateItem(item.localId, (current) => ({ ...current, metadata: { ...current.metadata, document_date: event.target.value } }))} /></label><label className="field">Persons <span className="optional">Optional</span><input value={item.metadata.persons_involved} maxLength={500} disabled={item.attempted || uploading || item.status === "INVALID_FILE"} onChange={(event) => updateItem(item.localId, (current) => ({ ...current, metadata: { ...current.metadata, persons_involved: event.target.value } }))} /></label></td><td><span className={`batch-status batch-status-${item.status.toLowerCase()}`}>{statusLabel(item.status)}</span>{item.error && <p className="batch-row-error" role="alert">{item.error}</p>}</td><td>{!attempted && <button className="button button-secondary table-button" type="button" disabled={uploading} onClick={() => removeItem(item.localId)}>Remove</button>}{item.status === "FAILED" && isFolderUploadRetryable(item.retryDisposition) && <button className="button button-secondary table-button" type="button" disabled={uploading} onClick={() => retryOne(item)}>Retry</button>}{item.status === "IN_PROGRESS" && <button className="button button-secondary table-button" type="button" disabled={uploading || !!(item.recheckAvailableAt && item.recheckAvailableAt > recheckClock)} onClick={() => checkAgain(item)}>Check again</button>}</td></tr>)}</tbody></table></section>
+      <section className="bulk-metadata-actions" aria-labelledby="bulk-metadata-title"><h3 id="bulk-metadata-title">Bulk edit metadata</h3><p role="status" aria-live="polite">{selectedBulkIds.size} eligible file{selectedBulkIds.size === 1 ? "" : "s"} selected.</p><div className="form-actions"><button className="button button-secondary" type="button" disabled={uploading || attempted || !eligibleBulkItems.length} onClick={() => setSelectedIds(new Set(eligibleBulkItems.map((item) => item.localId)))}>Select All eligible files</button><button className="button button-secondary" type="button" disabled={uploading || attempted || !selectedIds.size} onClick={() => setSelectedIds(new Set())}>Clear Selection</button></div><fieldset className="bulk-metadata-fields" disabled={uploading || attempted}><legend>Fields to change</legend>{(["subject", "document_date", "persons_involved"] as const).map((field) => <div key={field} className="field bulk-field"><label><input aria-label={`Bulk apply ${bulkFieldLabels[field].toLowerCase()}`} type="checkbox" checked={bulkFields.has(field)} onChange={(event) => toggleBulkField(field, event.target.checked)} /> Apply {bulkFieldLabels[field]}</label>{field === "document_date" ? <input aria-label="Bulk document date" type="date" value={bulkValues.document_date} disabled={!bulkFields.has(field)} onChange={(event) => setBulkValues((current) => ({ ...current, document_date: event.target.value }))} /> : <input aria-label={`Bulk ${bulkFieldLabels[field].toLowerCase()}`} value={bulkValues[field]} maxLength={500} disabled={!bulkFields.has(field)} onChange={(event) => setBulkValues((current) => ({ ...current, [field]: event.target.value }))} />}</div>)}</fieldset><div className="form-actions"><button className="button button-primary" type="button" disabled={uploading || attempted || !selectedBulkIds.size || !bulkFields.size} onClick={() => applyBulkMetadata("APPLY")}>Apply to Selected</button><button className="button button-secondary" type="button" disabled={uploading || attempted || !selectedBulkIds.size || !bulkFields.size} onClick={() => applyBulkMetadata("CLEAR")}>Clear Selected Fields</button><button className="button button-secondary" type="button" disabled={uploading || attempted} onClick={() => { setBulkFields(new Set()); setBulkValues({ subject: "", document_date: "", persons_involved: "" }); setBulkFeedback(undefined); }}>Cancel</button></div>{bulkFeedback && <p className={bulkFeedback.includes("required") || bulkFeedback.includes("valid") || bulkFeedback.includes("Choose") ? "form-error" : "form-success"} role={bulkFeedback.includes("required") || bulkFeedback.includes("valid") || bulkFeedback.includes("Choose") ? "alert" : "status"}>{bulkFeedback}</p>}</section>
+      <section className="table-wrap batch-table-wrap" aria-label="Folder upload review"><table className="batch-table folder-upload-table"><thead><tr><th><label><span className="sr-only">Select all eligible files</span><input aria-label="Select all eligible files" type="checkbox" disabled={uploading || attempted || !eligibleBulkItems.length} checked={eligibleBulkItems.length > 0 && eligibleBulkItems.every((item) => selectedIds.has(item.localId))} onChange={(event) => setSelectedIds(event.target.checked ? new Set(eligibleBulkItems.map((item) => item.localId)) : new Set())} /></label></th><th>File</th><th>Relative path</th><th>Metadata</th><th>Status</th><th>Actions</th></tr></thead><tbody>{items.map((item) => { const selectable = isFolderBulkEditable(item); return <tr key={item.localId}><td><input aria-label={`Select ${item.sourceRelativePath}`} type="checkbox" disabled={uploading || attempted || !selectable} checked={selectedIds.has(item.localId)} onChange={(event) => setSelectedIds((current) => { const next = new Set(current); if (event.target.checked) next.add(item.localId); else next.delete(item.localId); return next; })} /></td><td><strong>{item.file.name}</strong><span className="batch-file-size">{Math.ceil(item.file.size / 1024)} KiB</span></td><td>{item.sourceRelativePath}</td><td><label className="field">Number <span className="optional">Optional</span><input value={item.metadata.document_number} maxLength={150} disabled={item.attempted || uploading || item.status === "INVALID_FILE"} onChange={(event) => updateItem(item.localId, (current) => ({ ...current, metadata: { ...current.metadata, document_number: event.target.value } }))} /></label><label className="field">Subject<input value={item.metadata.subject} maxLength={500} disabled={item.attempted || uploading || item.status === "INVALID_FILE"} onChange={(event) => updateItem(item.localId, (current) => ({ ...current, metadata: { ...current.metadata, subject: event.target.value } }))} /></label><label className="field">Date<input type="date" value={item.metadata.document_date} disabled={item.attempted || uploading || item.status === "INVALID_FILE"} onChange={(event) => updateItem(item.localId, (current) => ({ ...current, metadata: { ...current.metadata, document_date: event.target.value } }))} /></label><label className="field">Persons <span className="optional">Optional</span><input value={item.metadata.persons_involved} maxLength={500} disabled={item.attempted || uploading || item.status === "INVALID_FILE"} onChange={(event) => updateItem(item.localId, (current) => ({ ...current, metadata: { ...current.metadata, persons_involved: event.target.value } }))} /></label></td><td><span className={`batch-status batch-status-${item.status.toLowerCase()}`}>{statusLabel(item.status)}</span>{item.error && <p className="batch-row-error" role="alert">{item.error}</p>}</td><td>{!attempted && <button className="button button-secondary table-button" type="button" disabled={uploading} onClick={() => removeItem(item.localId)}>Remove</button>}{item.status === "FAILED" && isFolderUploadRetryable(item.retryDisposition) && <button className="button button-secondary table-button" type="button" disabled={uploading} onClick={() => retryOne(item)}>Retry</button>}{item.status === "IN_PROGRESS" && <button className="button button-secondary table-button" type="button" disabled={uploading || !!(item.recheckAvailableAt && item.recheckAvailableAt > recheckClock)} onClick={() => checkAgain(item)}>Check again</button>}</td></tr>; })}</tbody></table></section>
       {!canStartInitialBatch && !attempted && <p className="notice">Choose a destination and complete metadata for every included file before uploading.</p>}
       {recheckCoolingDown && <p className="notice" role="status">Wait a moment before checking unresolved uploads again.</p>}
       <div className="form-actions batch-submit-actions"><button className="button button-primary" type="button" disabled={uploading || !canStartInitialBatch} onClick={() => void startQueue(items)}>{uploading ? "Uploading folder files…" : `Upload folder files (${items.length})`}</button>{retryableFailures.length > 0 && <button className="button button-secondary" type="button" disabled={uploading} onClick={() => retryItems(retryableFailures)}>Retry failed files ({retryableFailures.length})</button>}{unresolved.length > 0 && <button className="button button-secondary" type="button" disabled={uploading || recheckCoolingDown} onClick={() => retryItems(unresolved)}>Check again ({unresolved.length})</button>}<button className="button button-secondary" type="button" disabled={uploading} onClick={requestReset}>Select another folder</button></div>

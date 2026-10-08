@@ -1,6 +1,7 @@
 import { validateCanonicalSourceRelativePath } from "./folder-upload-validation";
 
 export const folderUploadCsvHeader = ["relative_path", "document_number", "subject", "document_date", "persons_involved"] as const;
+export const folderUploadResultsCsvHeader = ["relative_path", "filename", "document_number", "subject", "document_date", "persons_involved", "status", "safe_error_code", "safe_error_message"] as const;
 export const folderUploadCsvMaxBytes = 256 * 1024;
 export const folderUploadCsvMaxRows = 25;
 
@@ -78,6 +79,24 @@ export function createFolderUploadCsvTemplate(items: readonly Pick<FolderUploadC
     item.metadata.persons_involved,
   ].map(quoteFolderUploadCsvValue).join(","));
   return `\uFEFF${folderUploadCsvHeader.join(",")}\r\n${rows.join("\r\n")}${rows.length ? "\r\n" : ""}`;
+}
+
+export type FolderUploadResultsCsvRow = {
+  relative_path: string;
+  filename: string;
+  document_number: string;
+  subject: string;
+  document_date: string;
+  persons_involved: string;
+  status: string;
+  safe_error_code: string;
+  safe_error_message: string;
+};
+
+/** Safe client-side snapshot only; callers supply no internal identifiers. */
+export function createFolderUploadResultsCsv(rows: readonly FolderUploadResultsCsvRow[]): string {
+  const lines = rows.map((row) => folderUploadResultsCsvHeader.map((field) => quoteFolderUploadCsvValue(row[field])).join(","));
+  return `\uFEFF${folderUploadResultsCsvHeader.join(",")}\r\n${lines.join("\r\n")}${lines.length ? "\r\n" : ""}`;
 }
 
 function parseRecords(text: string): string[][] {
