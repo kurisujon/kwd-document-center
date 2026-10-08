@@ -5,6 +5,7 @@ import React from "react";
 import { AdminUploadForm } from "../src/components/documents/admin-upload-form.tsx";
 import { getFolderUploadBatchCounts } from "../src/components/documents/folder-upload-review.tsx";
 import { adminCategories } from "../src/lib/documents/admin-categories.ts";
+import { folderUploadCsvMaxBytes } from "../src/lib/documents/folder-upload-csv.ts";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost" });
 Object.assign(globalThis, {
@@ -56,6 +57,19 @@ function folderFile(path: string, content = path) {
   const name = path.split("/").at(-1)!;
   const file = new File([content], name, { type: "application/pdf" });
   Object.defineProperty(file, "webkitRelativePath", { value: path });
+  return file;
+}
+
+function csvFile(content: string, name = "metadata.csv") {
+  const file = new File([content], name, { type: "text/csv" });
+  Object.defineProperty(file, "arrayBuffer", { value: async () => new TextEncoder().encode(content).buffer });
+  return file;
+}
+
+function sizedCsvFile(size: number, onRead: () => void) {
+  const file = new File(["relative_path,document_number,subject,document_date,persons_involved\nreport.pdf,,,2027-01-01,"], "metadata.csv", { type: "text/csv" });
+  Object.defineProperty(file, "size", { configurable: true, value: size });
+  Object.defineProperty(file, "arrayBuffer", { value: async () => { onRead(); return new TextEncoder().encode("relative_path,document_number,subject,document_date,persons_involved\nreport.pdf,,,2027-01-01,").buffer; } });
   return file;
 }
 
@@ -165,6 +179,98 @@ test("invalid included files stay visible and block upload until the user explic
   await user.click(ui.getAllByRole("button", { name: "Remove" })[1]!);
   await waitFor(() => assert.equal(ui.getAllByRole("row").length, 2));
   assert.equal(uploadButton(ui).disabled, false);
+});
+
+test("Folder CSV import previews without mutation, applies explicit metadata changes, and preserves queue identities", async () => {
+  const generated = useDeterministicUUIDs();
+  const posted = installFetch({});
+  const ui = renderUpload();
+  const user = userEvent.setup({ document: dom.window.document, applyAccept: false });
+  await openFolder(ui, user);
+  await chooseFolder(ui, user, [folderFile("Root/January/report.pdf"), folderFile("Root/February/report.pdf")]);
+  await completeMetadata(ui, user);
+  const initialSubject = (ui.getAllByLabelText("Subject") as HTMLInputElement[])[0]!.value;
+  assert.equal(generated.length, 4);
+
+  await user.upload(ui.getByLabelText("Import CSV metadata"), csvFile("relative_path,document_number,subject,document_date,persons_involved\nJanuary/report.pdf,DOC-101,Imported January,2027-02-03,Office A\nFebruary/report.pdf,,Imported February,,"));
+  await waitFor(() => assert.match(ui.getByText("CSV import preview").textContent ?? "", /CSV import preview/));
+  assert.equal((ui.getAllByLabelText("Subject") as HTMLInputElement[])[0]!.value, initialSubject, "preview does not mutate metadata");
+  assert.ok(ui.getAllByText("Will update").length > 0);
+  await user.click(ui.getByRole("button", { name: "Apply Metadata" }));
+  await waitFor(() => assert.match(ui.getByText(/Metadata applied to 2 files/).textContent ?? "", /applied/));
+  const subjects = ui.getAllByLabelText("Subject") as HTMLInputElement[];
+  const dates = ui.getAllByLabelText("Date") as HTMLInputElement[];
+  const numbers = ui.getAllByLabelText(/Number/) as HTMLInputElement[];
+  assert.deepEqual(subjects.map((input) => input.value), ["Imported January", "Imported February"]);
+  assert.equal(numbers[0]!.value, "DOC-101");
+  assert.equal(dates[0]!.value, "2027-02-03");
+  assert.equal(dates[1]!.value, "2027-01-02", "blank cells preserve current metadata");
+  assert.equal(generated.length, 4, "CSV apply does not create local or idempotency identities");
+  assert.equal(posted.length, 0, "CSV apply does not initiate an upload");
+});
+
+test("Folder CSV Apply recalculates metadata readiness without changing the selected file", async () => {
+  installFetch({});
+  const ui = renderUpload();
+  const user = userEvent.setup({ document: dom.window.document, applyAccept: false });
+  await openFolder(ui, user);
+  await chooseFolder(ui, user, [folderFile("Root/Ready/report.pdf")]);
+  assert.match(ui.getByText("Needs metadata").textContent ?? "", /Needs metadata/);
+  assert.equal(uploadButton(ui).disabled, true);
+  await user.upload(ui.getByLabelText("Import CSV metadata"), csvFile("relative_path,document_number,subject,document_date,persons_involved\nReady/report.pdf,,Imported subject,2027-02-03,"));
+  await waitFor(() => assert.ok(ui.getByRole("button", { name: "Apply Metadata" })));
+  await user.click(ui.getByRole("button", { name: "Apply Metadata" }));
+  await waitFor(() => assert.match(ui.getByText("Ready").textContent ?? "", /Ready/));
+  assert.equal(uploadButton(ui).disabled, false);
+});
+
+test("Folder CSV import rejects unmatched paths atomically, cancels safely, and invalidates a preview when files change", async () => {
+  installFetch({});
+  const ui = renderUpload();
+  const user = userEvent.setup({ document: dom.window.document, applyAccept: false });
+  await openFolder(ui, user);
+  await chooseFolder(ui, user, [folderFile("Root/January/report.pdf"), folderFile("Root/February/report.pdf")]);
+  await completeMetadata(ui, user);
+  const before = (ui.getAllByLabelText("Subject") as HTMLInputElement[]).map((input) => input.value);
+  await user.upload(ui.getByLabelText("Import CSV metadata"), csvFile("not a CSV", "metadata.txt"));
+  await waitFor(() => assert.match(ui.getByRole("alert").textContent ?? "", /Choose a CSV/));
+  await user.upload(ui.getByLabelText("Import CSV metadata"), csvFile("relative_path,document_number,subject,document_date,persons_involved\nMissing/report.pdf,,Unsafe,,"));
+  await waitFor(() => assert.match(ui.getByRole("alert").textContent ?? "", /does not match a selected file/));
+  assert.deepEqual((ui.getAllByLabelText("Subject") as HTMLInputElement[]).map((input) => input.value), before);
+
+  await user.upload(ui.getByLabelText("Import CSV metadata"), csvFile("relative_path,document_number,subject,document_date,persons_involved\nJanuary/report.pdf,,Preview only,,"));
+  await waitFor(() => assert.ok(ui.getByRole("button", { name: "Cancel Import" })));
+  await user.click(ui.getByRole("button", { name: "Cancel Import" }));
+  assert.equal(ui.queryByText("CSV import preview"), null);
+  assert.deepEqual((ui.getAllByLabelText("Subject") as HTMLInputElement[]).map((input) => input.value), before);
+
+  await user.upload(ui.getByLabelText("Import CSV metadata"), csvFile("relative_path,document_number,subject,document_date,persons_involved\nJanuary/report.pdf,,Preview only,,"));
+  await waitFor(() => assert.ok(ui.getByRole("button", { name: "Apply Metadata" })));
+  await user.click(ui.getAllByRole("button", { name: "Remove" })[1]!);
+  await waitFor(() => assert.equal(ui.queryByText("CSV import preview"), null));
+});
+
+test("Folder CSV import checks the file size before reading and keeps a visible keyboard focus target", async () => {
+  installFetch({});
+  const ui = renderUpload();
+  const user = userEvent.setup({ document: dom.window.document, applyAccept: false });
+  await openFolder(ui, user);
+  await chooseFolder(ui, user, [folderFile("Root/report.pdf")]);
+  const input = ui.getByLabelText("Import CSV metadata") as HTMLInputElement;
+  const control = input.closest("label")!;
+  input.focus();
+  assert.equal(document.activeElement, input);
+  assert.equal(control.matches(":focus-within"), true);
+  let oversizedReads = 0;
+  await user.upload(input, sizedCsvFile(folderUploadCsvMaxBytes + 1, () => { oversizedReads += 1; }));
+  await waitFor(() => assert.match(ui.getByRole("alert").textContent ?? "", /256 KiB/));
+  assert.equal(oversizedReads, 0);
+  let exactReads = 0;
+  await user.upload(input, sizedCsvFile(folderUploadCsvMaxBytes, () => { exactReads += 1; }));
+  await waitFor(() => assert.ok(ui.getByRole("button", { name: "Apply Metadata" })));
+  assert.equal(exactReads, 1);
+  input.blur();
+  assert.equal(control.matches(":focus-within"), false);
 });
 
 test("removing a colliding path recomputes survivor validation while preserving its logical row", async () => {
@@ -422,6 +528,7 @@ test("Reset warns before discarding unresolved local retry state and otherwise r
   assert.match(ui.getByText("In progress").textContent ?? "", /In progress/);
   assert.equal(posted.length, 1);
   await act(async () => { await new Promise((resolve) => setTimeout(resolve, 600)); });
+  await waitFor(() => assert.equal((ui.getByRole("button", { name: "Check again" }) as HTMLButtonElement).disabled, false));
   await user.click(ui.getByRole("button", { name: "Check again" }));
   await waitFor(() => assert.equal(posted.length, 2));
   assert.equal(posted[1]!.body.get("idempotency_key"), first.body.get("idempotency_key"));
@@ -455,6 +562,7 @@ test("Folder mode controls lock while a request is actively uploading", async ()
   await waitFor(() => assert.equal(posted.length, 1));
   assert.equal((ui.getByRole("button", { name: "Files" }) as HTMLButtonElement).disabled, true);
   assert.equal((ui.getByRole("button", { name: "Select another folder" }) as HTMLButtonElement).disabled, true, "Reset cannot discard an active request");
+  assert.equal((ui.getByLabelText("Import CSV metadata") as HTMLInputElement).disabled, true, "CSV import locks after the first attempt");
   assert.match(ui.getByText("Uploading").textContent ?? "", /Uploading/);
   resolveUpload(Response.json({ document: { document_id: "active-complete" } }));
   await waitFor(() => assert.match(ui.getByText("Uploaded").textContent ?? "", /Uploaded/));

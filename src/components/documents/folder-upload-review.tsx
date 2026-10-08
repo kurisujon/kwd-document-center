@@ -5,6 +5,7 @@ import { createBatchUploadItem, deriveBatchItemStatus, batchUploadConcurrency, t
 import { createBatchUploadRunGuard, runBatchUploadQueue } from "@/lib/documents/batch-upload-queue";
 import { parseFolderSelection, type FolderSelectionIssue, type FolderSelectionIssueCode } from "@/lib/documents/folder-upload-validation";
 import { classifyFolderUploadFailure, isFolderUploadRetryable, type FolderUploadRetryDisposition } from "@/lib/documents/folder-upload-retry";
+import { FolderUploadCsvError, buildFolderUploadCsvPreview, createFolderUploadCsvTemplate, folderUploadCsvMaxBytes, parseFolderUploadCsv, type FolderUploadCsvPreview } from "@/lib/documents/folder-upload-csv";
 import { adminUploadAccept } from "@/lib/documents/upload-formats";
 
 type Destination = { destinationId: string; kind: "CATEGORY" | "SUBCATEGORY" | "WORKING_FOLDER"; filingYear: number; category: string; subcategory: string | null; label: string };
@@ -66,6 +67,8 @@ function destinationMetadata(destination: Destination) {
   return { document_type: destination.category as FolderItem["metadata"]["document_type"], filing_year: destination.filingYear, filing_subcategory: destination.subcategory ?? "", document_date: "", persons_involved: "" };
 }
 
+const csvFieldLabels = { document_number: "Document number", subject: "Subject", document_date: "Document date", persons_involved: "Persons involved" } as const;
+
 class FolderUploadRequestError extends Error {
   constructor(readonly status: number, readonly code?: string) {
     super("Folder upload request failed.");
@@ -78,11 +81,14 @@ export function FolderUploadReview({ maxBytes, onWorkflowLockChange }: { maxByte
   const [entries, setEntries] = useState<Array<{ file: File; path: string }>>([]);
   const [items, setItems] = useState<FolderItem[]>([]);
   const [manifestError, setManifestError] = useState<string>();
+  const [csvPreview, setCsvPreview] = useState<FolderUploadCsvPreview>();
+  const [csvFeedback, setCsvFeedback] = useState<string>();
   const [uploading, setUploading] = useState(false);
   const [resetConfirmationOpen, setResetConfirmationOpen] = useState(false);
   const [recheckClock, setRecheckClock] = useState(0);
   const guard = useRef(createBatchUploadRunGuard());
   const pickerRef = useRef<HTMLInputElement>(null);
+  const csvPickerRef = useRef<HTMLInputElement>(null);
   const destination = destinationState.values.find((value) => value.destinationId === destinationId);
   const attempted = isFolderWorkflowLocked(items);
   const counts = useMemo(() => getFolderUploadBatchCounts(items), [items]);
@@ -110,6 +116,7 @@ export function FolderUploadReview({ maxBytes, onWorkflowLockChange }: { maxByte
     const manifest = parseFolderSelection(nextEntries.map(({ file, path }) => ({ name: file.name, size: file.size, type: file.type, webkitRelativePath: path })));
     setEntries(nextEntries);
     setManifestError(manifest.issues[0] ? issueMessage(manifest.issues[0]) : undefined);
+    setCsvPreview(undefined); setCsvFeedback(undefined);
     const defaults = selectedDestination ? destinationMetadata(selectedDestination) : undefined;
     setItems(manifest.files.map((candidate) => {
       const source = nextEntries[candidate.index]!;
@@ -131,7 +138,52 @@ export function FolderUploadReview({ maxBytes, onWorkflowLockChange }: { maxByte
   }
 
   function updateItem(localId: string, change: (item: FolderItem) => FolderItem) {
+    setCsvPreview(undefined); setCsvFeedback(undefined);
     setItems((current) => current.map((item) => item.localId === localId && !item.attempted ? (() => { const changed = change(item); return { ...changed, status: deriveBatchItemStatus(changed, maxBytes) }; })() : item));
+  }
+
+  function csvItems() {
+    return items.map((item) => ({ localId: item.localId, sourceRelativePath: item.sourceRelativePath, metadata: item.metadata }));
+  }
+
+  function downloadCsvTemplate() {
+    if (attempted || uploading || !items.length) return;
+    const blob = new Blob([createFolderUploadCsvTemplate(csvItems())], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url; link.download = "kwd-folder-upload-metadata.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function importCsv(files: FileList | null) {
+    const file = files?.[0];
+    if (!file || attempted || uploading) return;
+    if (!/\.csv$/i.test(file.name)) { setCsvPreview(undefined); setCsvFeedback("Choose a CSV metadata file."); return; }
+    if (file.size > folderUploadCsvMaxBytes) { setCsvPreview(undefined); setCsvFeedback("CSV exceeds the 256 KiB limit."); return; }
+    try {
+      const rows = parseFolderUploadCsv(new Uint8Array(await file.arrayBuffer()));
+      setCsvPreview(buildFolderUploadCsvPreview(rows, csvItems()));
+      setCsvFeedback(undefined);
+    } catch (error) {
+      setCsvPreview(undefined);
+      setCsvFeedback(error instanceof FolderUploadCsvError ? error.message : "The CSV could not be imported.");
+    } finally {
+      if (csvPickerRef.current) csvPickerRef.current.value = "";
+    }
+  }
+
+  function applyCsvMetadata() {
+    if (!csvPreview || attempted || uploading) return;
+    const updates = new Map(csvPreview.updates.map((update) => [update.localId, update.values]));
+    setItems((current) => current.map((item) => {
+      const values = updates.get(item.localId);
+      if (!values) return item;
+      const changed = { ...item, metadata: { ...item.metadata, ...values } };
+      return item.status === "INVALID_FILE" ? changed : { ...changed, status: deriveBatchItemStatus(changed, maxBytes) };
+    }));
+    setCsvFeedback(`Metadata applied to ${csvPreview.matchedFiles} file${csvPreview.matchedFiles === 1 ? "" : "s"}.`);
+    setCsvPreview(undefined);
   }
 
   async function submitOne(item: BatchUploadItem) {
@@ -207,7 +259,7 @@ export function FolderUploadReview({ maxBytes, onWorkflowLockChange }: { maxByte
 
   function discardLocalBatch() {
     if (uploading) return;
-    setEntries([]); setItems([]); setManifestError(undefined); setDestinationId("");
+    setEntries([]); setItems([]); setManifestError(undefined); setCsvPreview(undefined); setCsvFeedback(undefined); setDestinationId("");
     setResetConfirmationOpen(false);
     if (pickerRef.current) pickerRef.current.value = "";
   }
@@ -233,6 +285,8 @@ export function FolderUploadReview({ maxBytes, onWorkflowLockChange }: { maxByte
         <progress value={counts.uploaded} max={counts.total} aria-label={`Folder upload progress: ${counts.uploaded} of ${counts.total} uploaded`}>{counts.uploaded} of {counts.total}</progress>
         <p id="folder-upload-progress-summary" className="batch-summary" role="status" aria-live="polite">Folder: {rootName} · {counts.uploaded} of {counts.total} uploaded · Total: {Math.ceil(entries.reduce((total, entry) => total + entry.file.size, 0) / 1024)} KiB · Directories: {directoryCount} · Ready: {counts.ready} · Queued: {counts.queued} · Uploading: {counts.uploading} · In progress: {counts.inProgress} · Failed: {counts.failed} · Retry available: {counts.retryableFailures} · Needs attention: {counts.blockedFailures} · Needs metadata: {counts.needsMetadata} · Invalid: {counts.invalid}</p>
       </div>
+      <section className="csv-metadata-actions" aria-labelledby="csv-metadata-title"><h3 id="csv-metadata-title">CSV metadata</h3><p>Download the template, complete metadata in a spreadsheet, then import it for review before applying changes.</p><div className="form-actions"><button className="button button-secondary" type="button" disabled={uploading || attempted} onClick={downloadCsvTemplate}>Download CSV Template</button><label className="button button-secondary csv-import-button">Import CSV<input ref={csvPickerRef} aria-label="Import CSV metadata" type="file" accept=".csv,text/csv" disabled={uploading || attempted} onChange={(event) => void importCsv(event.target.files)} /></label></div>{csvFeedback && <p className={csvFeedback.startsWith("Metadata applied") ? "form-success" : "form-error"} role={csvFeedback.startsWith("Metadata applied") ? "status" : "alert"}>{csvFeedback}</p>}</section>
+      {csvPreview && <section className="csv-preview" aria-labelledby="csv-preview-title"><div className="section-heading"><h3 id="csv-preview-title">CSV import preview</h3><p>{csvPreview.rowsParsed} CSV row{csvPreview.rowsParsed === 1 ? "" : "s"} parsed · {csvPreview.matchedFiles} file{csvPreview.matchedFiles === 1 ? "" : "s"} matched · {csvPreview.selectedFilesWithoutRows.length} selected file{csvPreview.selectedFilesWithoutRows.length === 1 ? "" : "s"} without a CSV row.</p></div>{csvPreview.selectedFilesWithoutRows.length > 0 && <p className="notice">Files without CSV rows keep their current metadata.</p>}<section className="table-wrap batch-table-wrap" aria-label="CSV metadata preview"><table className="batch-table"><thead><tr><th>File</th><th>Field</th><th>Current value</th><th>Imported value</th><th>Result</th></tr></thead><tbody>{csvPreview.updates.flatMap((update) => update.changes.length ? update.changes.map((change) => <tr key={`${update.localId}-${change.field}`}><td>{update.relativePath}</td><td>{csvFieldLabels[change.field]}</td><td>{change.currentValue || "—"}</td><td>{change.importedValue}</td><td>Will update</td></tr>) : [<tr key={`${update.localId}-unchanged`}><td>{update.relativePath}</td><td colSpan={3}>No nonblank CSV values will change this file.</td><td>Unchanged</td></tr>])}</tbody></table></section><div className="form-actions"><button className="button button-primary" type="button" disabled={uploading || attempted || !csvPreview.updates.some((update) => update.changes.length > 0)} onClick={applyCsvMetadata}>Apply Metadata</button><button className="button button-secondary" type="button" disabled={uploading} onClick={() => { setCsvPreview(undefined); setCsvFeedback(undefined); }}>Cancel Import</button></div></section>}
       <section className="table-wrap batch-table-wrap" aria-label="Folder upload review"><table className="batch-table folder-upload-table"><thead><tr><th>File</th><th>Relative path</th><th>Metadata</th><th>Status</th><th>Actions</th></tr></thead><tbody>{items.map((item) => <tr key={item.localId}><td><strong>{item.file.name}</strong><span className="batch-file-size">{Math.ceil(item.file.size / 1024)} KiB</span></td><td>{item.sourceRelativePath}</td><td><label className="field">Number <span className="optional">Optional</span><input value={item.metadata.document_number} maxLength={150} disabled={item.attempted || uploading || item.status === "INVALID_FILE"} onChange={(event) => updateItem(item.localId, (current) => ({ ...current, metadata: { ...current.metadata, document_number: event.target.value } }))} /></label><label className="field">Subject<input value={item.metadata.subject} maxLength={500} disabled={item.attempted || uploading || item.status === "INVALID_FILE"} onChange={(event) => updateItem(item.localId, (current) => ({ ...current, metadata: { ...current.metadata, subject: event.target.value } }))} /></label><label className="field">Date<input type="date" value={item.metadata.document_date} disabled={item.attempted || uploading || item.status === "INVALID_FILE"} onChange={(event) => updateItem(item.localId, (current) => ({ ...current, metadata: { ...current.metadata, document_date: event.target.value } }))} /></label><label className="field">Persons <span className="optional">Optional</span><input value={item.metadata.persons_involved} maxLength={500} disabled={item.attempted || uploading || item.status === "INVALID_FILE"} onChange={(event) => updateItem(item.localId, (current) => ({ ...current, metadata: { ...current.metadata, persons_involved: event.target.value } }))} /></label></td><td><span className={`batch-status batch-status-${item.status.toLowerCase()}`}>{statusLabel(item.status)}</span>{item.error && <p className="batch-row-error" role="alert">{item.error}</p>}</td><td>{!attempted && <button className="button button-secondary table-button" type="button" disabled={uploading} onClick={() => removeItem(item.localId)}>Remove</button>}{item.status === "FAILED" && isFolderUploadRetryable(item.retryDisposition) && <button className="button button-secondary table-button" type="button" disabled={uploading} onClick={() => retryOne(item)}>Retry</button>}{item.status === "IN_PROGRESS" && <button className="button button-secondary table-button" type="button" disabled={uploading || !!(item.recheckAvailableAt && item.recheckAvailableAt > recheckClock)} onClick={() => checkAgain(item)}>Check again</button>}</td></tr>)}</tbody></table></section>
       {!canStartInitialBatch && !attempted && <p className="notice">Choose a destination and complete metadata for every included file before uploading.</p>}
       {recheckCoolingDown && <p className="notice" role="status">Wait a moment before checking unresolved uploads again.</p>}
