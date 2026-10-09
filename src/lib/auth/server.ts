@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { isAuthSessionMissingError } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { hasMinimumRole } from "./permissions";
@@ -40,7 +41,8 @@ export async function getAuthorization(overrides: Partial<AuthorizationDependenc
   let user: SessionUser;
   try {
     user = await (overrides.getSessionUser ?? getSessionUser)();
-  } catch {
+  } catch (error) {
+    if (isAuthSessionMissingError(error)) return { kind: "unauthenticated" };
     logOperationalFailure({ operation: "auth.authorization", outcome: "failure", category: "SESSION_LOOKUP_FAILED", status: 503 });
     return { kind: "auth-error" };
   }

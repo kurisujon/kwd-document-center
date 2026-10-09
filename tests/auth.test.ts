@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { AuthSessionMissingError } from "@supabase/supabase-js";
 import { NextRequest } from "next/server";
 import { createAuthCallbackHandler } from "../src/lib/auth/callback.ts";
 import { getAuthorization } from "../src/lib/auth/server.ts";
@@ -23,6 +24,14 @@ function callbackRequest(search = "") {
 function location(response: Response) {
   return new URL(response.headers.get("location") ?? "", "http://localhost").pathname
     + new URL(response.headers.get("location") ?? "", "http://localhost").search;
+}
+
+async function captureOperationalLogs<T>(run: () => Promise<T>) {
+  const original = console.error;
+  const events: unknown[] = [];
+  console.error = (event: unknown) => { events.push(event); };
+  try { return { result: await run(), events }; }
+  finally { console.error = original; }
 }
 
 test("auth callback preserves safe internal redirects and writes only server-managed callback cookies", async () => {
@@ -82,11 +91,39 @@ test("getAuthorization distinguishes sessions, authorization records, and infras
   };
   assert.deepEqual(await getAuthorization(base), { kind: "authorized", user: authorizedUser });
   assert.deepEqual(await getAuthorization({ ...base, getSessionUser: async () => null }), { kind: "unauthenticated" });
+  assert.deepEqual(await getAuthorization({ ...base, getSessionUser: async () => { throw new AuthSessionMissingError(); } }), { kind: "unauthenticated" });
   assert.deepEqual(await getAuthorization({ ...base, findAuthorizedUser: async () => ({ ...authorizedUser, status: "INACTIVE" }) }), { kind: "inactive" });
   assert.deepEqual(await getAuthorization({ ...base, getSessionUser: async () => { throw new Error("provider token details"); } }), { kind: "auth-error" });
   assert.deepEqual(await getAuthorization({ ...base, findAuthorizedUser: async () => { throw new Error("database transport details"); } }), { kind: "auth-error" });
   assert.deepEqual(await getAuthorization({ ...base, findAuthorizedUser: async () => null }), { kind: "not-authorized" });
   assert.equal(getAuthorizationRedirectPath("auth-error"), authenticationFailureRedirectPath);
+  assert.equal(getAuthorizationRedirectPath("unauthenticated"), "/login");
+});
+
+test("missing sessions are normal unauthenticated visits and do not emit lookup failures", async () => {
+  let authorizationLookup = false;
+  const captured = await captureOperationalLogs(() => getAuthorization({
+    isSupabaseConfigured: () => true,
+    getSessionUser: async () => { throw new AuthSessionMissingError(); },
+    findAuthorizedUser: async () => { authorizationLookup = true; return authorizedUser; },
+  }));
+  assert.deepEqual(captured.result, { kind: "unauthenticated" });
+  assert.equal(getAuthorizationRedirectPath(captured.result.kind), "/login");
+  assert.equal(authorizationLookup, false);
+  assert.deepEqual(captured.events, []);
+});
+
+test("real session lookup failures remain fail-closed and emit the bounded operational event", async () => {
+  const captured = await captureOperationalLogs(() => getAuthorization({
+    isSupabaseConfigured: () => true,
+    getSessionUser: async () => { throw new Error("provider diagnostic"); },
+    findAuthorizedUser: async () => authorizedUser,
+  }));
+  assert.deepEqual(captured.result, { kind: "auth-error" });
+  assert.equal(getAuthorizationRedirectPath(captured.result.kind), authenticationFailureRedirectPath);
+  assert.equal(captured.events.length, 1);
+  assert.match(String(captured.events[0]), /SESSION_LOOKUP_FAILED/);
+  assert.doesNotMatch(String(captured.events[0]), /provider diagnostic/);
 });
 
 test("proxy refresh success preserves server-managed cookies and failures fail closed without a redirect", async () => {
