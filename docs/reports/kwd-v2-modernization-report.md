@@ -1,10 +1,11 @@
 # KWD Document Center V2 modernization report
 
-Date: 2026-10-14  
-Branch: `feature/kwd-fullstack-modernization`  
+Date: 2026-10-15
+Branch: `feature/kwd-fullstack-modernization`
 Starting commit: `8666b26`
 
 Implementation commit: `609cffc` (`feat(ui): modernize document workspace experience`)
+Acceptance-report commit: `7898993` (`docs: record modernization acceptance evidence`)
 
 ## Outcome
 
@@ -32,6 +33,14 @@ No evidence-backed backend regression was found by the repository suite, so no s
 - Made mobile navigation an explicit labeled control with a dismissible scrim; document-detail routes keep Documents active while Upload has an independent active state.
 - Retained horizontal scrolling for data-dense review tables rather than hiding fields or changing upload behavior.
 
+## Post-review remediation
+
+The independent review identified two accessibility defects and one report-hygiene issue. On mobile, the closed sidebar now uses `visibility: hidden`, which removes its descendants from sequential keyboard focus and the accessibility tree, while `.sidebar-open` restores visibility; the rule is scoped to the mobile breakpoint, so desktop navigation remains available. The menu button continues to expose `aria-expanded` and `aria-controls` for its controlled sidebar.
+
+The focus indicator now resolves through the centralized `--color-focus` token to solid approved Azure (`--color-primary`, `#007fff`) instead of 38%-alpha Azure. Regression coverage parses the stylesheet rules, verifies the closed/open mobile visibility states, resolves the focus token, rejects opacity by construction, and calculates that the resulting color meets the 3:1 non-text contrast threshold against both white and the temporary neutral background.
+
+The report's trailing whitespace was removed, and diff hygiene was checked over the complete modernization range beginning at `8666b26`, including the post-review changes, rather than inferred from a clean working tree.
+
 ## Verification evidence
 
 ### Automated checks
@@ -44,10 +53,22 @@ No evidence-backed backend regression was found by the repository suite, so no s
 | `npm run typecheck` | Passed. |
 | `npm run lint` | Passed with 0 errors and 2 pre-existing warnings (`postcss.config.mjs` anonymous default export and an unused test parameter in `tests/admin-documents.test.ts`). |
 | `npm run build -- --webpack` | Passed; production build compiled, typechecked, generated all 17 static pages, and emitted the expected dynamic route table. Loopback Supabase was unavailable during prerender and the protected authorization boundary failed closed as designed. |
-| `git diff --check` | Passed. |
+| `git diff --check 8666b26..HEAD` | Passed across the complete modernization commit range. |
 | `npm run audit:production` | Environment-limited: npm registry DNS returned `EAI_AGAIN`; no audit conclusion is claimed. |
 
 The four expected test skips require an explicitly opted-in disposable local PostgreSQL target: folder concurrency, Phase 4 concurrency, Supabase security integration, and upload persistence/finalization. Both sandboxed and approved attempts to start the repository's loopback Supabase stack failed at Docker health inspection, and `pg_isready` confirmed no response on loopback ports 54322 or 5432. No hosted DEV or Production service was contacted.
+
+### Post-review verification (2026-10-15)
+
+| Command | Result |
+|---|---|
+| `npm test` | Passed: 314 tests, 310 passed, 4 expected environment-dependent skips, 0 failed. This includes the two stylesheet-behavior and contrast regressions added for the review findings. |
+| `npm run typecheck` | Passed. |
+| `npm run lint` | Passed with 0 errors and the same 2 pre-existing warnings documented above. |
+| `npm run build -- --webpack` | Passed; the production build generated all 17 static pages and the expected dynamic route table. The unavailable loopback Supabase configuration failed closed during prerender as designed. |
+| `git diff --check 8666b26..HEAD` | Passed across the complete modernization commit range after the post-review fix commit. |
+
+During the independent review, a fresh full suite initially reported a timing failure in `tests/folder-upload-ui.test.tsx` (the case at lines 558–588). The focused test then passed, as did a complete 312-test rerun; the post-review 314-test full run also passed. Because the failure has not reproduced and no evidence connects it to these CSS/report changes, it is recorded as observed test flakiness rather than represented as a fixed product defect.
 
 ### CSV and Excel workflows
 
