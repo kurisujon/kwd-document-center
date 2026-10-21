@@ -251,3 +251,42 @@ tbody tr:hover { background: #f8fbff; }
   .users-table-wrap, .batch-table-wrap { margin-inline: -1rem; }
   .login-page { background: var(--color-background); } .login-panel { box-shadow: none; }
 }
+
+/* Contain Documents table overflow on smaller screens. */
+@media (max-width: 800px) {
+  .results-section .table-wrap {
+    contain: paint;
+  }
+}
+
+/* Document deletion confirmation outside scrollable tables. */
+.document-delete-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  box-sizing: border-box;
+  background: rgb(15 23 42 / 0.6);
+  overscroll-behavior: contain;
+}
+
+.document-delete-overlay .confirmation-panel {
+  width: min(100%, 40rem);
+  min-width: 0;
+  max-height: calc(100vh - 2rem);
+  max-height: calc(100dvh - 2rem);
+  overscroll-behavior: contain;
+  margin: 0;
+  box-sizing: border-box;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.document-delete-overlay .confirmation-actions {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
