@@ -183,6 +183,24 @@ test("bounded queue never exceeds three requests, isolates failures, and does no
   assert.deepEqual(failed, ["three"]);
 });
 
+test("queue announces ready rows before workers start and does not requeue terminal rows", async () => {
+  const items = ["one", "two", "three", "four"].map(ready);
+  const events: string[] = [];
+  const inProgress: string[] = [];
+  await runBatchUploadQueue({
+    items: [...items, { ...ready("complete"), status: "UPLOADED" as const }],
+    upload: async (item) => item.localId === "two" ? { documentId: "", inProgress: true } : { documentId: item.localId },
+    onQueue: (ids) => events.push(`queued:${ids.join(",")}`),
+    onStart: (id) => events.push(`started:${id}`),
+    onSuccess: (id, result) => { if (result.inProgress) inProgress.push(id); },
+    onFailure: () => {},
+  });
+  assert.equal(events[0], "queued:one,two,three,four");
+  assert.deepEqual(events.filter((event) => event.startsWith("started:")).map((event) => event.slice("started:".length)).sort(), ["four", "one", "three", "two"]);
+  assert.deepEqual(inProgress, ["two"]);
+  assert.ok(!events.includes("started:complete"));
+});
+
 test("failed retry retains its original idempotency key and completed rows are not resubmitted", async () => {
   const failed = { ...ready("retry"), status: "READY" as const };
   const uploaded = { ...ready("done"), status: "UPLOADED" as const };

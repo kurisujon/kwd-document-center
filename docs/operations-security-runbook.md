@@ -31,6 +31,8 @@ This runbook covers security-sensitive configuration and recovery for the curren
 | `PHASE4_*` | Local/test-only configuration | Explicit disposable local PostgreSQL concurrency test controls |
 | `KWD_SECURITY_*` | Local/test-only configuration | Explicit disposable local Supabase/PostgreSQL security test controls |
 | `KWD_UPLOAD_*` | Local/test-only configuration | Explicit disposable local upload-persistence test controls |
+| `KWD_FOLDER_*` | Local/test-only configuration | Explicit disposable local folder-concurrency test controls |
+| `KWD_HIERARCHY_*` | Local/test-only configuration | Explicit disposable local hierarchy-integrity test controls |
 
 ### Storage rules
 
@@ -94,7 +96,7 @@ Use this when the refresh token is revoked, the official storage-account authori
 
 - Migrations are forward-only once applied. Never edit an already-applied Production migration; create a reviewed corrective migration instead.
 - Validate migrations and relevant local integration tests before requesting any hosted migration operation. Production migration work requires explicit review and a separate go/no-go gate.
-- The destructive local suites are `phase4-users-concurrency`, `supabase-security-integration`, and `upload-persistence-integration`.
+- The destructive local suites are `phase4-users-concurrency`, `supabase-security-integration`, `upload-persistence-integration`, `folder-concurrency`, and `hierarchy-integrity-integration`.
 - They require explicit opt-in plus a database target that resolves exclusively to loopback. Never run them against hosted DEV or Production.
 - Run the relevant local suite after changes to Phase 4 admin authorization/RPC concurrency, Supabase RLS/ACL boundaries, or upload/finalization database behavior.
 
