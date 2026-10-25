@@ -316,11 +316,26 @@ export function FolderUploadReview({ maxBytes, onWorkflowLockChange }: { maxByte
   const rootName = entries[0]?.path.split(/[\\/]/)[0] ?? "Selected folder";
   return <section className="batch-upload folder-upload" aria-labelledby="folder-upload-title">
     <div className="section-heading"><h2 id="folder-upload-title">Upload a folder</h2><p>Choose one approved destination. Files retain their local relative path as provenance and upload independently.</p></div>
-    <label className="field">Upload destination<select aria-label="Upload destination" value={destinationId} disabled={uploading || attempted || destinationState.status !== "READY"} onChange={(event) => { const selected = destinationState.values.find((value) => value.destinationId === event.target.value); setDestinationId(event.target.value); if (entries.length) rebuild(entries, selected); }}><option value="">Select a destination</option>{destinationState.values.map((value) => <option key={value.destinationId} value={value.destinationId}>{value.label}</option>)}</select></label>
-    {destinationState.status === "LOADING" && <p role="status" className="notice">Loading upload destinations…</p>}
-    {destinationState.status === "ERROR" && <p role="alert" className="form-error">Upload destinations are temporarily unavailable. Try again later.</p>}
-    {destinationState.status === "READY" && !destinationState.values.length && <p className="notice">No upload-enabled folders are available.</p>}
-    <label className="field file-field">Folder<input ref={pickerRef} aria-label="Select a folder" type="file" multiple accept={adminUploadAccept} disabled={uploading || attempted} {...({ webkitdirectory: "" } as { webkitdirectory: string })} onChange={(event) => { selectFolder(event.target.files); event.currentTarget.value = ""; }} /><span>Folder selection is supported in Chrome and Edge. Empty folders are not included.</span></label>
+    <div className="upload-config-grid">
+      <div className="folder-destination-panel">
+        <label className="field">Upload destination<select aria-label="Upload destination" value={destinationId} disabled={uploading || attempted || destinationState.status !== "READY"} onChange={(event) => { const selected = destinationState.values.find((value) => value.destinationId === event.target.value); setDestinationId(event.target.value); if (entries.length) rebuild(entries, selected); }}><option value="">Select a destination</option>{destinationState.values.map((value) => <option key={value.destinationId} value={value.destinationId}>{value.label}</option>)}</select></label>
+        {destinationState.status === "LOADING" && <p role="status" className="notice">Loading upload destinations…</p>}
+        {destinationState.status === "ERROR" && <p role="alert" className="form-error">Upload destinations are temporarily unavailable. Try again later.</p>}
+        {destinationState.status === "READY" && !destinationState.values.length && <p className="notice">No upload-enabled folders are available.</p>}
+      </div>
+      <label className="field file-field upload-dropzone">
+        <span className="upload-dropzone-icon" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <path d="m17 8-5-5-5 5" />
+            <path d="M12 3v12" />
+          </svg>
+        </span>
+        <span className="upload-dropzone-title">Folder</span>
+        <input ref={pickerRef} aria-label="Select a folder" type="file" multiple accept={adminUploadAccept} disabled={uploading || attempted} {...({ webkitdirectory: "" } as { webkitdirectory: string })} onChange={(event) => { selectFolder(event.target.files); event.currentTarget.value = ""; }} />
+        <span>Folder selection is supported in Chrome and Edge. Empty folders are not included.</span>
+      </label>
+    </div>
     {manifestError && <p className="form-error" role="alert">{manifestError}</p>}
     {items.length > 0 && <>
       <div className="batch-progress" aria-labelledby="folder-upload-progress-summary">

@@ -121,15 +121,28 @@ export function BatchUploadReview({ categories, maxBytes }: Props) {
 
   return <section className="batch-upload" aria-labelledby="batch-upload-title">
     <div className="section-heading"><h2 id="batch-upload-title">Select documents</h2><p>Select up to {maximumBatchUploadFiles} approved files. Every file remains an independent upload.</p></div>
-    <label className="field file-field">Document files<input aria-label="Select document files" type="file" multiple accept={adminUploadAccept} disabled={uploading} onChange={(event) => { selectFiles(event.target.files); event.currentTarget.value = ""; }} /><span>Accepted files: PDF, Word, Excel, CSV, PowerPoint, JPG, PNG, and TXT. Maximum {Math.floor(maxBytes / 1024 / 1024)} MiB each.</span></label>
+    <div className="upload-config-grid">
+      <label className="field file-field upload-dropzone">
+        <span className="upload-dropzone-icon" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <path d="m17 8-5-5-5 5" />
+            <path d="M12 3v12" />
+          </svg>
+        </span>
+        <span className="upload-dropzone-title">Document files</span>
+        <input aria-label="Select document files" type="file" multiple accept={adminUploadAccept} disabled={uploading} onChange={(event) => { selectFiles(event.target.files); event.currentTarget.value = ""; }} />
+        <span>Accepted files: PDF, Word, Excel, CSV, PowerPoint, JPG, PNG, and TXT. Maximum {Math.floor(maxBytes / 1024 / 1024)} MiB each.</span>
+      </label>
+      <fieldset className="batch-defaults" disabled={uploading}><legend>Common defaults</legend>
+        <label className="field">Admin category<select value={defaults.document_type} onChange={(event) => { const category = event.target.value as AdminCategory; updateDefaults(defaultValues(category)); }}><>{categories.map((category) => <option key={category} value={category}>{category}</option>)}</></select></label>
+        {categoryUsesYear(defaults.document_type) && <label className="field">Filing year<input type="number" min="1900" max="9999" value={defaults.filing_year ?? ""} onChange={(event) => updateDefaults({ filing_year: event.target.value ? Number(event.target.value) : null })} /></label>}
+        {(adminSubcategories[defaults.document_type] ?? []).length > 0 && <label className="field">Subcategory<select value={defaults.filing_subcategory} onChange={(event) => updateDefaults({ filing_subcategory: event.target.value })}>{adminSubcategories[defaults.document_type]!.map((value) => <option key={value} value={value}>{value}</option>)}</select></label>}
+        <label className="field">Default date <span className="optional">Optional</span><input type="date" value={defaults.document_date} onChange={(event) => updateDefaults({ document_date: event.target.value })} /></label>
+        <label className="field">Default persons involved <span className="optional">Optional</span><input value={defaults.persons_involved} maxLength={500} onChange={(event) => updateDefaults({ persons_involved: event.target.value })} /></label>
+      </fieldset>
+    </div>
     {selectionError && <p className="form-error" role="alert">{selectionError}</p>}
-    <fieldset className="batch-defaults" disabled={uploading}><legend>Common defaults</legend>
-      <label className="field">Admin category<select value={defaults.document_type} onChange={(event) => { const category = event.target.value as AdminCategory; updateDefaults(defaultValues(category)); }}><>{categories.map((category) => <option key={category} value={category}>{category}</option>)}</></select></label>
-      {categoryUsesYear(defaults.document_type) && <label className="field">Filing year<input type="number" min="1900" max="9999" value={defaults.filing_year ?? ""} onChange={(event) => updateDefaults({ filing_year: event.target.value ? Number(event.target.value) : null })} /></label>}
-      {(adminSubcategories[defaults.document_type] ?? []).length > 0 && <label className="field">Subcategory<select value={defaults.filing_subcategory} onChange={(event) => updateDefaults({ filing_subcategory: event.target.value })}>{adminSubcategories[defaults.document_type]!.map((value) => <option key={value} value={value}>{value}</option>)}</select></label>}
-      <label className="field">Default date <span className="optional">Optional</span><input type="date" value={defaults.document_date} onChange={(event) => updateDefaults({ document_date: event.target.value })} /></label>
-      <label className="field">Default persons involved <span className="optional">Optional</span><input value={defaults.persons_involved} maxLength={500} onChange={(event) => updateDefaults({ persons_involved: event.target.value })} /></label>
-    </fieldset>
     {items.length > 0 && <>
       <section className="batch-actions" aria-label="Bulk metadata actions">
         <label><input type="checkbox" checked={allSelected} disabled={uploading || !allSelectable.length} onChange={(event) => setSelected(event.target.checked ? selectAllEditableBatchItems(items) : new Set())} /> Select all editable rows</label>
