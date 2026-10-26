@@ -12,6 +12,7 @@ const clientEntryPoints = [
   "src/components/app-shell/sign-out-button.tsx",
   "src/components/auth/login-button.tsx",
   "src/components/documents/admin-upload-form.tsx",
+  "src/components/folders/folder-management.tsx",
   "src/components/users/user-management.tsx",
 ] as const;
 

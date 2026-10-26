@@ -38,6 +38,7 @@ test("authenticated navigation identifies document detail and upload routes inde
   assert.equal(isNavigationItemActive("/documents/upload", "/documents"), false);
   assert.equal(isNavigationItemActive("/documents/upload", "/documents/upload"), true);
   assert.equal(isNavigationItemActive("/admin/users", "/admin/users"), true);
+  assert.equal(isNavigationItemActive("/admin/folders", "/admin/folders"), true);
 });
 
 test("modern shell keeps approved brand tokens, the neutral background fallback, and required responsive widths", async () => {

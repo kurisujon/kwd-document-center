@@ -7,9 +7,25 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
     <main className="login-page">
       <div className="login-bento">
         <section className="login-brand-tile" aria-labelledby="login-title">
-          <div className="wordmark">Kiblawan Water District</div>
-          <h1 id="login-title">Document Center</h1>
-          <p>Find and access official KWD documents from one secure place.</p>
+          <div>
+            <div className="wordmark">Kiblawan Water District</div>
+            <h1 id="login-title">Document Center</h1>
+            <p>Find and access official KWD documents from one secure place.</p>
+          </div>
+          <ul className="login-brand-points">
+            <li>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12" /></svg>
+              <span>Official registry and fast metadata search</span>
+            </li>
+            <li>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12" /></svg>
+              <span>Secure Google Drive file repository</span>
+            </li>
+            <li>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12" /></svg>
+              <span>Strict role-based access for authorized staff</span>
+            </li>
+          </ul>
         </section>
         <section className="login-panel" aria-label="Sign in">
           <p className="eyebrow">Staff sign-in</p>

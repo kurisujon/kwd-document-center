@@ -72,10 +72,21 @@
 - **Access**: ADMIN only.
 - **Content**:
   - Users table: Email, Name, Role, Status, Actions
+  - Search by name/email and role/status filter bar
   - Add user form/modal: Email, Name, Role
   - Edit user: Change role, activate/deactivate
   - Confirmation for deactivation
 - **No delete**: Users are deactivated, not deleted.
+
+### Folders & Destinations Page (Admin Only) [PHASE 7C.2]
+- **Route**: `/admin/folders`
+- **Purpose**: Manage folder hierarchy and configure upload-enabled destination folders for the Folder Upload Center.
+- **Access**: ADMIN only.
+- **Content**:
+  - Overview of registered folders across years and categories
+  - Upload destination toggle (enables/disables `upload_enabled` per folder via `PATCH /api/admin/folders/upload-settings`)
+  - Status filtering (All, Upload enabled, Upload disabled) and search
+  - Quick actions for folder creation and hierarchy item management
 
 ## 2. Pages NOT Needed for MVP [CONFIRMED]
 
@@ -94,6 +105,7 @@ Documents          (all authenticated users)
 Upload             (STAFF, ADMIN)
 ────────────────────
 Users              (ADMIN only)
+Folders            (ADMIN only)
 ```
 
 - Active page indicated with Azure accent
@@ -109,6 +121,7 @@ Users              (ADMIN only)
 | `/documents/[id]` | Document Detail | Authenticated |
 | `/documents/upload` | Upload Document | STAFF, ADMIN |
 | `/admin/users` | User Management | ADMIN |
+| `/admin/folders` | Folders & Destinations | ADMIN |
 
 ## 5. Post-Login Redirect [PROPOSED]
 - After login, redirect to `/documents` (NOT a dashboard).
