@@ -46,7 +46,7 @@ function lockBackgroundScroll() {
   };
 }
 
-export function DocumentDeleteAction({ id, number, subject }: { id: string; number: string | null; subject: string }) {
+export function DocumentDeleteAction({ id, number, subject, redirectTo }: { id: string; number: string | null; subject: string; redirectTo?: string }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
@@ -121,7 +121,11 @@ export function DocumentDeleteAction({ id, number, subject }: { id: string; numb
       deletedRef.current = true;
       setDeleted(true);
       setOpen(false);
-      router.refresh();
+      if (redirectTo) {
+        router.push(redirectTo);
+      } else {
+        router.refresh();
+      }
     } catch {
       setError("The deletion request could not be completed. Please retry.");
     } finally {

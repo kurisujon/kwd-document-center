@@ -135,3 +135,9 @@ Explicitly **AVOID**:
 - Generic SaaS/Tailwind dashboard appearance
 - Oversized illustrations or excessive icon usage
 - Visual clutter
+
+## 27. Bento Layout Revision [OWNER-APPROVED]
+An owner-approved visual revision adopts a restrained bento-style tile layout across the workspace while preserving KWD's semantic color tokens, accessibility guarantees, and anti-pattern constraints:
+- **Design tokens:** `--radius-tile: 18px`, `--radius-inner: 12px`, `--radius-control: 10px`, and `--shadow-tile: 0 1px 2px rgb(15 23 42 / .04), 0 6px 20px rgb(15 23 42 / .03)`.
+- **Documents workspace:** Replaces the overview strip with a 10-column `.bento-grid` where the search and filter panel is the primary tile (6 columns, 2 rows) alongside factual Registry count, Current view, and Quick guidance tiles (no invented metrics or decorative charts).
+- **Surface treatment:** Primary panels, results tables, detail metadata cards, login panels, and floating desktop navigation use consistent tile rounding and soft elevation, with inset box-shadow accents replacing flat left borders so accents follow rounded corners.

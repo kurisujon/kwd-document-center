@@ -38,6 +38,7 @@ test("authenticated navigation identifies document detail and upload routes inde
   assert.equal(isNavigationItemActive("/documents/upload", "/documents"), false);
   assert.equal(isNavigationItemActive("/documents/upload", "/documents/upload"), true);
   assert.equal(isNavigationItemActive("/admin/users", "/admin/users"), true);
+  assert.equal(isNavigationItemActive("/admin/folders", "/admin/folders"), true);
 });
 
 test("modern shell keeps approved brand tokens, the neutral background fallback, and required responsive widths", async () => {
@@ -47,6 +48,11 @@ test("modern shell keeps approved brand tokens, the neutral background fallback,
   assert.match(css, /--color-text-secondary:\s*#557c99/i);
   assert.match(css, /--color-background:\s*var\(--color-surface-muted\)/);
   assert.match(css, /Milky White is still pending approval/);
+  assert.match(css, /--radius-tile:\s*18px/);
+  assert.match(css, /--radius-inner:\s*12px/);
+  assert.match(css, /--radius-control:\s*10px/);
+  assert.match(css, /--shadow-tile:/);
+  assert.match(css, /@media \(max-width: 1100px\)/);
   assert.match(css, /@media \(max-width: 800px\)/);
   assert.match(css, /@media \(max-width: 520px\)/);
   assert.doesNotMatch(css, /glassmorphism|backdrop-filter/i);

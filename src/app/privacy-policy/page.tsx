@@ -10,6 +10,11 @@ export default function PrivacyPolicyPage() {
   return (
     <main className="login-page">
       <article className="login-panel" aria-labelledby="privacy-title">
+        <p className="login-back-nav">
+          <Link className="back-link" href="/login">
+            ← Back to sign in
+          </Link>
+        </p>
         <div className="wordmark">Kiblawan Water District</div>
         <h1 id="privacy-title">Privacy Policy</h1>
 

@@ -231,6 +231,7 @@ Primary visual reference: `https://veldra-sand.vercel.app/` (Inspiration only).
 Do NOT copy Veldra's branding, logo, content, exact layouts, or proprietary assets.
 Use the general design language: clean, spacious, structured, professional, restrained, strong typography, clear hierarchy, intentional spacing.
 The application must NOT look like a generic AI-generated dashboard.
+Exception: The restrained bento-style tile layout in `docs/design/design-system.md` Section 27 is owner-approved.
 
 ---
 
@@ -247,6 +248,7 @@ Do NOT invent a final Milky White HEX value. Use centralized design tokens. Do N
 
 ## 21. UI Anti-Patterns
 Avoid purple AI gradients, neon effects, glassmorphism, excessive gradients/cards/rounded containers/shadows/borders/charts/KPI dashboards/animations/icons, decorative dashboards, visual clutter, and generic Tailwind dashboard templates. The UI should look intentionally designed, not AI-generated.
+Exception: Restrained bento tiles, `--radius-tile`/`--radius-inner`/`--radius-control` tokens, and inline SVG navigation/upload icons defined in `docs/design/design-system.md` Section 27 are owner-approved.
 
 ---
 
