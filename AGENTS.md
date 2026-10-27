@@ -248,7 +248,7 @@ Do NOT invent a final Milky White HEX value. Use centralized design tokens. Do N
 
 ## 21. UI Anti-Patterns
 Avoid purple AI gradients, neon effects, glassmorphism, excessive gradients/cards/rounded containers/shadows/borders/charts/KPI dashboards/animations/icons, decorative dashboards, visual clutter, and generic Tailwind dashboard templates. The UI should look intentionally designed, not AI-generated.
-Exception: Restrained bento tiles, `--radius-tile`/`--radius-inner`/`--radius-control` tokens, inline SVG navigation/upload/card icons, KWD Azure-to-Cobalt directional gradients, pill badges, and interactive login preview surfaces defined in `docs/design/design-system.md` Sections 27 and 28 are owner-approved.
+Exception: Restrained bento tiles, `--radius-tile`/`--radius-inner`/`--radius-control` tokens, inline SVG navigation/upload icons, and the clean light StudFlow-inspired workspace shell defined in `docs/design/design-system.md` Sections 27 and 28 are owner-approved.
 
 ---
 

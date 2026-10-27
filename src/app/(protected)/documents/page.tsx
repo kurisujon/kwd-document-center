@@ -53,7 +53,7 @@ export default async function DocumentsPage({ searchParams }: { searchParams: Pr
       <header className="page-heading">
         <div>
           <p className="eyebrow">Document workspace</p>
-          <h1>Find the <span className="heading-gradient">document</span> you need.</h1>
+          <h1>Find the document you need.</h1>
           <p>Search the official KWD registry, narrow the results, and open the source file in Drive.</p>
         </div>
         <DocumentPageActions role={user.role} />
@@ -62,23 +62,11 @@ export default async function DocumentsPage({ searchParams }: { searchParams: Pr
       <section className="bento-grid" aria-label="Document workspace overview and filters">
         <form className="search-panel bento-tile bento-search" aria-label="Document filters">
           <div className="filter-heading">
-            <div className="bento-card-title-group">
-              <span className="bento-icon-badge" aria-hidden="true">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="11" cy="11" r="8" />
-                  <path d="m21 21-4.3-4.3" />
-                </svg>
-              </span>
-              <div>
-                <p className="eyebrow">Registry search</p>
-                <h2>Search and filter</h2>
-              </div>
+            <div>
+              <p className="eyebrow">Registry search</p>
+              <h2>Search and filter</h2>
             </div>
-            {activeFilterCount > 0 ? (
-              <Link className="clear-filter" href="/documents">Clear all</Link>
-            ) : (
-              <span className="bento-pill">Instant Query</span>
-            )}
+            {activeFilterCount > 0 && <Link className="clear-filter" href="/documents">Clear all</Link>}
           </div>
           <label className="field search-field">
             Search documents
@@ -101,61 +89,25 @@ export default async function DocumentsPage({ searchParams }: { searchParams: Pr
           </label>
           <input name="sortBy" type="hidden" value={query.sortBy} />
           <input name="sortOrder" type="hidden" value={query.sortOrder} />
-          <div className="filter-submit-row">
-            <button className="button button-primary filter-submit" type="submit">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
-              </svg>
-              <span>Apply filters</span>
-            </button>
-          </div>
+          <button className="button button-secondary filter-submit" type="submit">Apply filters</button>
         </form>
 
         <div className="bento-tile bento-stat">
-          <div className="bento-stat-top">
-            <span className="bento-icon-badge" aria-hidden="true">
-              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                <path d="M14 2v6h6" />
-                <path d="M8 13h8" />
-                <path d="M8 17h6" />
-              </svg>
-            </span>
-            <span className="bento-pill">Live Registry</span>
-          </div>
           <span className="overview-label">Registry</span>
           <strong>{result.total.toLocaleString()}</strong>
           <span>matching {result.total === 1 ? "document" : "documents"}</span>
         </div>
 
         <div className="bento-tile bento-stat">
-          <div className="bento-stat-top">
-            <span className="bento-icon-badge bento-icon-badge-cobalt" aria-hidden="true">
-              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round">
-                <polygon points="12 2 2 7 12 12 22 7 12 2" />
-                <polyline points="2 17 12 22 22 17" />
-                <polyline points="2 12 12 17 22 12" />
-              </svg>
-            </span>
-            <span className="bento-pill">{activeFilterCount ? "Filtered" : "All Records"}</span>
-          </div>
           <span className="overview-label">Current view</span>
           <strong>{activeFilterCount || "All"}</strong>
           <span>{activeFilterCount ? `${activeFilterCount} active ${activeFilterCount === 1 ? "filter" : "filters"}` : "No filters applied"}</span>
         </div>
 
         <div className="bento-tile bento-guidance overview-guidance">
-          <div className="bento-guidance-top">
-            <span className="bento-icon-badge-light" aria-hidden="true">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z" />
-              </svg>
-            </span>
-            <span className="bento-pill-light">Google Drive Sync</span>
-          </div>
           <span className="overview-label">Quick guidance</span>
-          <strong>Search first, open in one click</strong>
-          <span>Filter by document number, subject, person, or date to launch verified source files directly in Drive.</span>
+          <strong>Search first</strong>
+          <span>Filter by document number, subject, person, or date to open verified source files in Google Drive.</span>
         </div>
       </section>
 
@@ -194,20 +146,11 @@ export default async function DocumentsPage({ searchParams }: { searchParams: Pr
 
       <section className="results-section bento-tile" aria-labelledby="results-title">
         <div className="results-heading">
-          <div className="bento-card-title-group">
-            <span className="bento-icon-badge" aria-hidden="true">
-              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round">
-                <rect width="18" height="18" x="3" y="3" rx="2" />
-                <path d="M3 9h18" />
-                <path d="M9 21V9" />
-              </svg>
-            </span>
-            <div>
-              <p className="eyebrow">Registry results</p>
-              <h2 id="results-title">Documents</h2>
-            </div>
+          <div>
+            <p className="eyebrow">Registry results</p>
+            <h2 id="results-title">Documents</h2>
           </div>
-          <span className="bento-pill">{result.total.toLocaleString()} total</span>
+          <span>{result.total.toLocaleString()} total</span>
         </div>
         <div className="table-wrap" aria-label="Document results">
           <table>
@@ -232,7 +175,7 @@ export default async function DocumentsPage({ searchParams }: { searchParams: Pr
                 result.documents.map((document) => (
                   <tr key={document.document_id}>
                     <td className="nowrap-cell">
-                      <strong className="doc-number-badge">{document.document_number ?? "—"}</strong>
+                      <strong>{document.document_number ?? "—"}</strong>
                     </td>
                     <td>
                       <span className="type-label">{document.document_type}</span>
@@ -251,7 +194,7 @@ export default async function DocumentsPage({ searchParams }: { searchParams: Pr
                         </Link>
                         {document.drive_file_id && (
                           <a
-                            className="table-action table-action-drive"
+                            className="table-action"
                             href={`/api/documents/${document.document_id}/open`}
                             target="_blank"
                             rel="noreferrer"
