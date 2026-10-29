@@ -134,6 +134,17 @@ input[type="file"]::file-selector-button:hover {
   box-shadow: var(--shadow-tile);
 }
 .login-bento .login-panel { width: 100%; }
+.login-brand-badge {
+  display: flex;
+  align-items: center;
+  margin-bottom: 1.15rem;
+}
+.login-brand-logo {
+  display: block;
+  width: 3.5rem;
+  height: 3.5rem;
+  object-fit: contain;
+}
 .login-hero-panel h1 {
   margin: .35rem 0 .75rem;
   font-size: clamp(1.75rem, 3.2vw, 2.35rem);
@@ -386,6 +397,13 @@ input[type="file"]::file-selector-button:hover {
 .sidebar-brand strong, .sidebar-brand small { display: block; }
 .sidebar-brand strong { font-family: var(--font-display); font-size: .95rem; font-weight: 700; color: var(--color-text-primary); letter-spacing: -.01em; }
 .sidebar-brand small { margin-top: -.05rem; color: var(--color-text-muted); font-size: .72rem; }
+.brand-logo {
+  display: block;
+  flex: 0 0 auto;
+  width: 2.15rem;
+  height: 2.15rem;
+  object-fit: contain;
+}
 .brand-mark {
   width: 2rem;
   height: 2rem;
@@ -718,7 +736,8 @@ tbody tr:hover { background: #f8fafc; }
 @media (max-width: 800px) {
   .app-shell { display: block; padding: 4rem 0 0; }
   .mobile-header { position: fixed; inset: 0 0 auto; z-index: 50; height: 4rem; display: flex; align-items: center; justify-content: space-between; padding: .65rem 1rem; color: var(--color-text-primary); background: var(--color-surface); border-bottom: 1px solid var(--color-border); }
-  .mobile-brand { font-size: .88rem; font-weight: 700; } .mobile-brand .brand-mark { width: 1.9rem; height: 1.9rem; }
+  .mobile-brand { font-size: .88rem; font-weight: 700; }
+  .mobile-brand .brand-logo, .mobile-brand .brand-mark { width: 1.9rem; height: 1.9rem; }
   .menu-button { width: 2.5rem; height: 2.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-control); color: var(--color-text-primary); background: transparent; font-size: 1.2rem; }
   .nav-scrim { position: fixed; inset: 4rem 0 0; z-index: 35; display: block; width: 100%; height: calc(100% - 4rem); border: 0; background: rgb(15 23 42 / .4); }
   .sidebar { position: fixed; inset: 4rem auto 0 0; z-index: 40; width: min(17.5rem, 86vw); height: calc(100svh - 4rem); visibility: hidden; transform: translateX(-102%); transition: transform .2s ease; box-shadow: 16px 0 36px rgb(15 23 42 / .12); }

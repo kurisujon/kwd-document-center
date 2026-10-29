@@ -1,5 +1,6 @@
 import { LoginButton } from "@/components/auth/login-button";
 import { LoginShowcase } from "@/components/auth/login-showcase";
+import Image from "next/image";
 import Link from "next/link";
 
 const messages: Record<string, string> = {
@@ -15,6 +16,16 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
     <main className="login-page">
       <div className="login-bento">
         <section className="login-panel login-hero-panel" aria-labelledby="login-title">
+          <div className="login-brand-badge">
+            <Image
+              src="/kwd-logo.png"
+              alt="Kiblawan Water District Logo"
+              width={56}
+              height={56}
+              priority
+              className="login-brand-logo"
+            />
+          </div>
           <div className="eyebrow">Kiblawan Water District</div>
           <h1 id="login-title">KWD Document Center</h1>
           <p className="login-hero-lead">

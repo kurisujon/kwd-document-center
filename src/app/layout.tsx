@@ -8,6 +8,10 @@ const manrope = Manrope({ subsets: ["latin"], variable: "--font-display" });
 export const metadata: Metadata = {
   title: "KWD Document Center",
   description: "Kiblawan Water District's internal document center.",
+  icons: {
+    icon: "/kwd-logo.png",
+    apple: "/kwd-logo.png",
+  },
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
