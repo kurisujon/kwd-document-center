@@ -58,6 +58,7 @@ Responsibilities:
 | Operation | Method | Purpose | Auth Required | Min Role |
 |---|---|---|---|---|
 | List/Search documents | GET /api/documents | Search registry with filters (standard query + `meta_*` type-specific custom filters) | Yes | VIEWER |
+| Full-text search with snippets | GET /api/search | Full-text search across extracted text and metadata with snippets | Yes | VIEWER |
 | Get document detail | GET /api/documents/:id | Get single document metadata | Yes | VIEWER |
 | Update document confidentiality | PATCH /api/documents/:id | Toggle `confidential` flag on an active document | Yes | ADMIN |
 | Change document status | PATCH /api/documents/:id/status | Transition document lifecycle status (state machine validation) | Yes | STAFF / ADMIN |

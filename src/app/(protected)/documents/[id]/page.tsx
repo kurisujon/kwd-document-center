@@ -12,6 +12,7 @@ import {
 import { getDocumentById } from "@/lib/documents/repository";
 import { isDocumentId } from "@/lib/documents/query";
 import type { DocumentLinkRecord, DocumentVersionRecord, TagRecord } from "@/lib/documents/types";
+import { getDocumentText, type DocumentTextRecord } from "@/lib/ocr/ocr-service";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { DocumentConfidentialityAction } from "@/components/documents/document-confidentiality-action";
@@ -81,16 +82,19 @@ export default async function DocumentDetailPage({
   let links: DocumentLinkRecord[] = [];
   let versions: DocumentVersionRecord[] = [];
   let tags: TagRecord[] = [];
+  let docText: DocumentTextRecord | null = null;
 
   try {
-    const [linksRes, versionsRes, tagsRes] = await Promise.all([
+    const [linksRes, versionsRes, tagsRes, docTextRes] = await Promise.all([
       listDocumentLinks(supabase, document.document_id, user),
       listDocumentVersions(supabase, document.document_id, user),
       listDocumentTags(supabase, document.document_id, user),
+      getDocumentText(supabase, document.document_id, user),
     ]);
     links = linksRes;
     versions = versionsRes;
     tags = tagsRes;
+    docText = docTextRes;
   } catch {
     // Non-fatal if extended properties fail to load
   }
@@ -149,6 +153,7 @@ export default async function DocumentDetailPage({
             <Metadata label="Persons involved" value={document.persons_involved} />
             <Metadata label="Status" value={document.status} />
             <Metadata label="Version" value={`v${document.version_count || 1}`} />
+            <Metadata label="OCR status" value={docText?.ocr_status ?? "PENDING"} />
             <Metadata
               label="Access level"
               value={document.confidential ? "Confidential (Admin only)" : "Standard"}
@@ -199,6 +204,21 @@ export default async function DocumentDetailPage({
                   Download file to view this document.
                 </p>
               )}
+            </section>
+          )}
+
+          {docText?.extracted_text && (
+            <section className="document-extracted-text-section" aria-label="Extracted text" style={{ marginTop: "1.5rem" }}>
+              <div className="section-heading">
+                <p className="eyebrow">Searchable content</p>
+                <h2>Extracted text</h2>
+              </div>
+              <details style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "4px", padding: "0.75rem" }}>
+                <summary style={{ cursor: "pointer", fontWeight: 600 }}>View extracted full-text</summary>
+                <pre style={{ whiteSpace: "pre-wrap", marginTop: "0.75rem", fontSize: "0.85rem", maxHeight: "300px", overflowY: "auto" }}>
+                  {docText.extracted_text}
+                </pre>
+              </details>
             </section>
           )}
 

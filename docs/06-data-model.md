@@ -146,6 +146,17 @@ Ad hoc categorization across categories. RLS enforces that tags on confidential 
 ### saved_filters [IMPLEMENTED, MILESTONE 3]
 User-scoped saved search queries (`user_id`, `name`, `query_params jsonb`). RLS restricts access to the owning user.
 
+### document_text [IMPLEMENTED, MILESTONE 4]
+Stores extracted plain text and full-text search tsvector (`document_id`, `extracted_text`, `tsv`, `ocr_status`, `last_processed_at`, `error_message`, `updated_at`).
+- `tsv` generated always using `'simple'` configuration to preserve Filipino, Cebuano, and English proper nouns without stemming.
+- GIN index on `tsv` for sub-millisecond search; trigram index (`pg_trgm`) on `extracted_text` for fuzzy name and number queries.
+- RLS policy enforces `public.can_read_document` on `document_id`.
+
+### ocr_jobs [IMPLEMENTED, MILESTONE 4]
+Asynchronous job queue for background text extraction and Drive native OCR (`id`, `document_id`, `status`, `attempts`, `max_attempts`, `lock_token`, `lock_expires_at`, `error_category`).
+- Statuses: `PENDING`, `PROCESSING`, `COMPLETED`, `FAILED`.
+- Leased execution via `claim_ocr_jobs` prevents duplicate processing and recovers stalled jobs. Accessible only to administrators and `service_role`.
+
 ## 4. Google Sheets Registry [OUT OF SCOPE]
 
 Google Sheets is not used by the Phase 3 Admin implementation. Supabase/PostgreSQL remains the sole application registry.
