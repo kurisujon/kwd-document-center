@@ -18,6 +18,9 @@ import { createClient } from "@/lib/supabase/server";
 import { DocumentConfidentialityAction } from "@/components/documents/document-confidentiality-action";
 import { DocumentCommentsPanel } from "@/components/documents/document-comments-panel";
 import { DocumentRetentionAction } from "@/components/documents/document-retention-action";
+import { DocumentStarButton } from "@/components/documents/document-star-button";
+import { DocumentQrCode } from "@/components/documents/document-qr-code";
+import { isDocumentStarred } from "@/lib/stars/star-service";
 import { listDocumentComments } from "@/lib/comments/comment-service";
 import type { DocumentCommentRecord } from "@/lib/documents/types";
 
@@ -88,20 +91,23 @@ export default async function DocumentDetailPage({
   let tags: TagRecord[] = [];
   let docText: DocumentTextRecord | null = null;
   let comments: DocumentCommentRecord[] = [];
+  let isStarred = false;
 
   try {
-    const [linksRes, versionsRes, tagsRes, docTextRes, commentsRes] = await Promise.all([
+    const [linksRes, versionsRes, tagsRes, docTextRes, commentsRes, starredRes] = await Promise.all([
       listDocumentLinks(supabase, document.document_id, user),
       listDocumentVersions(supabase, document.document_id, user),
       listDocumentTags(supabase, document.document_id, user),
       getDocumentText(supabase, document.document_id, user),
       listDocumentComments(supabase, user, document.document_id),
+      isDocumentStarred(supabase, user.id, document.document_id),
     ]);
     links = linksRes;
     versions = versionsRes;
     tags = tagsRes;
     docText = docTextRes;
     comments = commentsRes;
+    isStarred = starredRes;
   } catch {
     // Non-fatal if extended properties fail to load
   }
@@ -142,6 +148,12 @@ export default async function DocumentDetailPage({
           <p className="eyebrow">Document record</p>
           <h1>{document.subject}</h1>
           <p>{document.document_number || document.file_name || "KWD registry document"}</p>
+        </div>
+        <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+          <DocumentStarButton
+            documentId={document.document_id}
+            initialStarred={isStarred}
+          />
         </div>
       </header>
       <section className="document-layout">
@@ -424,6 +436,11 @@ export default async function DocumentDetailPage({
             initialStatus={document.retention_status ?? "ACTIVE"}
             retentionPeriodMonths={document.retention_period_months ?? null}
             isAdmin={user.role === "ADMIN"}
+          />
+          <DocumentQrCode
+            documentId={document.document_id}
+            documentNumber={document.document_number}
+            subject={document.subject}
           />
         </aside>
       </section>

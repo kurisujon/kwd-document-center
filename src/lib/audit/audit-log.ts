@@ -27,6 +27,9 @@ export const AUDIT_ACTIONS = [
   "DOCUMENT_RETENTION_FLAG",
   "DOCUMENT_RETENTION_APPROVE",
   "REMINDER_SENT",
+  "DOCUMENT_STAR",
+  "DOCUMENT_UNSTAR",
+  "REPORT_EXPORT_CSV",
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

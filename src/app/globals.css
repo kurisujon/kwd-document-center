@@ -329,3 +329,62 @@ tbody tr:hover { background: #f8fbff; }
   border-left: 3px solid var(--color-error);
   background: var(--color-surface-muted);
 }
+
+/* Milestone 6: Print stylesheet and accessibility focus polish */
+@media print {
+  .sidebar,
+  .mobile-header,
+  .nav-scrim,
+  .no-print,
+  .document-actions,
+  .row-actions,
+  .search-panel,
+  .back-link,
+  .pagination,
+  .menu-button {
+    display: none !important;
+  }
+
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-size: 11pt !important;
+  }
+
+  .app-shell {
+    display: block !important;
+  }
+
+  .app-main, .page-frame {
+    margin: 0 !important;
+    padding: 0 !important;
+    max-width: none !important;
+  }
+
+  .report-print-table table,
+  .document-detail {
+    border: 1px solid #000000 !important;
+    width: 100% !important;
+  }
+
+  th, td {
+    border: 1px solid #000000 !important;
+    color: #000000 !important;
+  }
+
+  .document-qr-card {
+    border: 1px dashed #000000 !important;
+    background: transparent !important;
+    page-break-inside: avoid;
+  }
+
+  .document-qr-card button {
+    display: none !important;
+  }
+}
+
+/* Accessibility focus ring */
+:focus-visible {
+  outline: 2px solid var(--color-accent, #0284c7) !important;
+  outline-offset: 2px !important;
+}

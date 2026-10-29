@@ -181,6 +181,12 @@ Chronological discussion and compliance notes attached to documents (`id`, `docu
 - RLS enforces `can_read_document` for reading comments and active STAFF/ADMIN authorization for creating comments.
 - Comment additions create an immutable `DOCUMENT_COMMENT_CREATE` audit log entry.
 
+### user_document_stars [IMPLEMENTED, MILESTONE 6]
+User personal bookmarks / starred documents (`id`, `user_id`, `document_id`, `created_at`).
+- Unique constraint: `unique (user_id, document_id)`.
+- RLS restricts access to the bookmarking user. Enforces `can_read_document` on bookmark creation and query results.
+
+
 ## 4. Google Sheets Registry [OUT OF SCOPE]
 
 Google Sheets is not used by the Phase 3 Admin implementation. Supabase/PostgreSQL remains the sole application registry.

@@ -230,3 +230,15 @@ diagnostics.
 
 ### Scheduled Cron Worker
 - `GET /api/cron/reminders` / `POST /api/cron/reminders`: Trigger endpoint for Vercel Cron or external scheduler. Secured with `Authorization: Bearer <CRON_SECRET>`. Evaluates 90-, 30-, and 7-day expiration/due-date thresholds (deduplicated via `reminders_sent`) and evaluates retention eligibility under NAP RA 9470 disposition schedules.
+
+## 9. Dashboard, Reports, and Starred Bookmarks [IMPLEMENTED, MILESTONE 6]
+
+### Dashboard Metrics
+- `GET /api/dashboard`: Aggregates active document counts, 90-day upcoming expirations, pending retention reviews, category breakdowns, 5 recent uploads, and 5 upcoming expirations. Strictly enforces `can_read_document` across all metrics and lists.
+
+### Reports Export
+- `GET /api/reports/export`: Streams an RFC 4180 compliant CSV report with `Content-Disposition: attachment`. Filters by category, year, date range, and status. Writes `REPORT_EXPORT_CSV` audit log entry.
+
+### Starred Bookmarks
+- `GET /api/documents/[id]/star`: Checks if current user has starred the specified document.
+- `POST /api/documents/[id]/star`: Toggles star bookmark for authenticated user via `toggle_document_star` RPC. Enforces `can_read_document`.
