@@ -214,3 +214,19 @@ Hierarchy results are browser-safe: `ACTIVE` is 201, `ACTIVE_EXISTING` is 200,
 safe 500. The response whitelists application folder identity and safe
 hierarchy metadata; it never serializes provider IDs, tokens, leases, or raw
 diagnostics.
+
+## 8. Notifications, Comments, Retention, and Cron [IMPLEMENTED, MILESTONE 5]
+
+### Notifications
+- `GET /api/notifications?unreadOnly=1&limit=50`: Returns `{ notifications, total, unreadCount }` for the authenticated active user.
+- `PATCH /api/notifications`: JSON mutation to mark a notification or all notifications as read (`{ notificationId: string }` or `{ all: true }`).
+
+### Comments
+- `GET /api/documents/[id]/comments`: Lists all comments on the specified document. Strictly checks `can_read_document` to prevent unauthorized viewers from accessing confidential document comments.
+- `POST /api/documents/[id]/comments`: Adds a comment (`{ content: string }`, 1–2000 chars) for an active staff or admin user. Logs `DOCUMENT_COMMENT_CREATE` in the audit log.
+
+### Retention Lifecycle
+- `POST /api/documents/[id]/retention`: Admin-only approval of legal records disposition (`{ action: 'ARCHIVE' | 'DISPOSE', notes?: string }`). Records disposition justification, updates lifecycle status, and writes `DOCUMENT_RETENTION_APPROVE` to the audit log. The system never automatically disposes of records.
+
+### Scheduled Cron Worker
+- `GET /api/cron/reminders` / `POST /api/cron/reminders`: Trigger endpoint for Vercel Cron or external scheduler. Secured with `Authorization: Bearer <CRON_SECRET>`. Evaluates 90-, 30-, and 7-day expiration/due-date thresholds (deduplicated via `reminders_sent`) and evaluates retention eligibility under NAP RA 9470 disposition schedules.

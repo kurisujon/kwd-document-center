@@ -109,6 +109,13 @@ Supabase/PostgreSQL is the application's document metadata registry for Phase 2.
 | `confidential` | BOOLEAN | `NOT NULL DEFAULT false`; **Milestone 1** | Marks confidential records visible only to ACTIVE ADMIN users via `public.can_read_document` |
 | `custom_metadata` | JSONB | `NOT NULL DEFAULT '{}'::jsonb`; **Milestone 2 (ADR-007)** | Type-specific structured fields defined in reviewed code configuration (`document-types-config.ts`), constrained to JSON objects. Indexed with GIN (`documents_custom_metadata_gin_idx`) |
 | `file_sha256` | TEXT | Nullable; **Milestone 2 (ADR-007)** | Server-computed SHA-256 hash (64 hex characters) of uploaded file bytes for duplicate detection. Indexed with `documents_file_sha256_idx` |
+| `expires_at` | TIMESTAMPTZ | Nullable; **Milestone 5 (ADR-010)** | Document expiration date (for contracts, permits, licenses) |
+| `due_at` | TIMESTAMPTZ | Nullable; **Milestone 5 (ADR-010)** | Compliance or action deadline |
+| `retention_period_months` | INTEGER | Nullable; **Milestone 5 (ADR-010)** | Optional custom retention period override (months); defaults to NAP RDS schedule |
+| `retention_status` | TEXT | `ACTIVE`/`PENDING_REVIEW`/`ARCHIVED`/`DISPOSED`; **Milestone 5 (ADR-010)** | Records disposition status. Documents are flagged for review, never auto-disposed |
+| `retention_flagged_at` | TIMESTAMPTZ | Nullable; **Milestone 5 (ADR-010)** | Timestamp when retention period expired and record was flagged for review |
+| `retention_approved_at` / `retention_approved_by` | TIMESTAMPTZ / UUID | Nullable; **Milestone 5 (ADR-010)** | Administrative approval timestamp and actor for archive or disposal |
+| `retention_notes` | TEXT | Nullable; **Milestone 5 (ADR-010)** | Recorded justification or notes for disposition |
 | `deletion_state` | TEXT | `ACTIVE`/`DELETE_PENDING`/`DELETE_FAILED`/`DELETED`; Phase 7A | Separate soft-deletion lifecycle; not archival status |
 | `delete_started_at` | TIMESTAMPTZ | Nullable | Start time for the current or most recent deletion attempt |
 | `delete_operation_token` | UUID | Required only while pending | Server-generated ownership token for deletion finalization/failure updates |
@@ -156,6 +163,23 @@ Stores extracted plain text and full-text search tsvector (`document_id`, `extra
 Asynchronous job queue for background text extraction and Drive native OCR (`id`, `document_id`, `status`, `attempts`, `max_attempts`, `lock_token`, `lock_expires_at`, `error_category`).
 - Statuses: `PENDING`, `PROCESSING`, `COMPLETED`, `FAILED`.
 - Leased execution via `claim_ocr_jobs` prevents duplicate processing and recovers stalled jobs. Accessible only to administrators and `service_role`.
+
+### notifications [IMPLEMENTED, MILESTONE 5]
+In-app user notifications (`id`, `user_id`, `kind`, `document_id`, `title`, `body`, `read_at`, `created_at`).
+- Kinds: `REMINDER_90`, `REMINDER_30`, `REMINDER_7`, `RETENTION_FLAGGED`, `COMMENT`, `STATUS_CHANGE`, `GENERAL`.
+- RLS policy restricts reading and updating (`read_at`) to the recipient user.
+- Confidential document notifications are sent strictly to active administrators and sanitized to prevent leaking confidential subjects.
+
+### reminders_sent [IMPLEMENTED, MILESTONE 5]
+Tracks exactly-once delivery of milestone reminders (`id`, `document_id`, `kind`, `threshold_days`, `sent_at`).
+- Unique constraint: `unique (document_id, kind, threshold_days)` with thresholds 90, 30, and 7 days.
+- Prevents duplicate alerts across daily cron executions. Service-role only access.
+
+### document_comments [IMPLEMENTED, MILESTONE 5]
+Chronological discussion and compliance notes attached to documents (`id`, `document_id`, `user_id`, `content`, `created_at`, `updated_at`).
+- Content bounded to 1–2000 characters.
+- RLS enforces `can_read_document` for reading comments and active STAFF/ADMIN authorization for creating comments.
+- Comment additions create an immutable `DOCUMENT_COMMENT_CREATE` audit log entry.
 
 ## 4. Google Sheets Registry [OUT OF SCOPE]
 

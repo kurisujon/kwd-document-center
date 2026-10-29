@@ -16,6 +16,10 @@ import { getDocumentText, type DocumentTextRecord } from "@/lib/ocr/ocr-service"
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { DocumentConfidentialityAction } from "@/components/documents/document-confidentiality-action";
+import { DocumentCommentsPanel } from "@/components/documents/document-comments-panel";
+import { DocumentRetentionAction } from "@/components/documents/document-retention-action";
+import { listDocumentComments } from "@/lib/comments/comment-service";
+import type { DocumentCommentRecord } from "@/lib/documents/types";
 
 function Metadata({ label, value }: { label: string; value: string | null }) {
   return (
@@ -83,18 +87,21 @@ export default async function DocumentDetailPage({
   let versions: DocumentVersionRecord[] = [];
   let tags: TagRecord[] = [];
   let docText: DocumentTextRecord | null = null;
+  let comments: DocumentCommentRecord[] = [];
 
   try {
-    const [linksRes, versionsRes, tagsRes, docTextRes] = await Promise.all([
+    const [linksRes, versionsRes, tagsRes, docTextRes, commentsRes] = await Promise.all([
       listDocumentLinks(supabase, document.document_id, user),
       listDocumentVersions(supabase, document.document_id, user),
       listDocumentTags(supabase, document.document_id, user),
       getDocumentText(supabase, document.document_id, user),
+      listDocumentComments(supabase, user, document.document_id),
     ]);
     links = linksRes;
     versions = versionsRes;
     tags = tagsRes;
     docText = docTextRes;
+    comments = commentsRes;
   } catch {
     // Non-fatal if extended properties fail to load
   }
@@ -152,6 +159,13 @@ export default async function DocumentDetailPage({
             <Metadata label="Subject" value={document.subject} />
             <Metadata label="Persons involved" value={document.persons_involved} />
             <Metadata label="Status" value={document.status} />
+            <Metadata label="Retention status" value={document.retention_status ?? "ACTIVE"} />
+            {document.expires_at && (
+              <Metadata label="Expiration date" value={new Date(document.expires_at).toLocaleDateString()} />
+            )}
+            {document.due_at && (
+              <Metadata label="Action due date" value={new Date(document.due_at).toLocaleDateString()} />
+            )}
             <Metadata label="Version" value={`v${document.version_count || 1}`} />
             <Metadata label="OCR status" value={docText?.ocr_status ?? "PENDING"} />
             <Metadata
@@ -320,6 +334,12 @@ export default async function DocumentDetailPage({
             )}
           </section>
 
+          <DocumentCommentsPanel
+            documentId={document.document_id}
+            initialComments={comments}
+            canComment={user.role === "ADMIN" || user.role === "STAFF"}
+          />
+
           {user.role === "ADMIN" && (
             <section className="document-activity-section" aria-label="Document activity">
               <div className="results-heading">
@@ -399,6 +419,12 @@ export default async function DocumentDetailPage({
               confidential={Boolean(document.confidential)}
             />
           )}
+          <DocumentRetentionAction
+            documentId={document.document_id}
+            initialStatus={document.retention_status ?? "ACTIVE"}
+            retentionPeriodMonths={document.retention_period_months ?? null}
+            isAdmin={user.role === "ADMIN"}
+          />
         </aside>
       </section>
     </>

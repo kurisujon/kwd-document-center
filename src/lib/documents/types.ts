@@ -12,6 +12,7 @@ export type DocumentDeletionState = "ACTIVE" | "DELETE_PENDING" | "DELETED" | "D
 
 export type DocumentStatus = "DRAFT" | "UNDER_REVIEW" | "APPROVED" | "ACTIVE" | "SUPERSEDED" | "ARCHIVED";
 export type DocumentRelation = "RELATES_TO" | "SUPERSEDES" | "AMENDS";
+export type RetentionStatus = "ACTIVE" | "PENDING_REVIEW" | "ARCHIVED" | "DISPOSED";
 
 export interface DocumentRecord {
   document_id: string;
@@ -32,9 +33,28 @@ export interface DocumentRecord {
   custom_metadata?: Record<string, unknown>;
   file_sha256?: string | null;
   version_count?: number;
+  expires_at?: string | null;
+  due_at?: string | null;
+  retention_period_months?: number | null;
+  retention_status?: RetentionStatus;
+  retention_flagged_at?: string | null;
+  retention_approved_at?: string | null;
+  retention_approved_by?: string | null;
+  retention_notes?: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface DocumentCommentRecord {
+  id: string;
+  document_id: string;
+  user_id: string;
+  user_name: string;
+  user_email: string;
+  user_role: string;
+  content: string;
+  created_at: string;
 }
 
 export interface DocumentLinkRecord {
