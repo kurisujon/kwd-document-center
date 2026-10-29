@@ -88,42 +88,58 @@
   - Status filtering (All, Upload enabled, Upload disabled) and search
   - Quick actions for folder creation and hierarchy item management
 
-## 2. Pages NOT Needed for MVP [CONFIRMED]
+## 2. Implemented Pages & Workspaces
 
-- **Dashboard/Home page with analytics**: NOT needed. The Documents page IS the home page after login.
-- **Settings/Configuration page**: NOT needed for MVP. Folder mappings are environment variables. [FUTURE]
-- **Reports page**: NOT needed.
-- **Notifications page**: NOT needed.
+The full system incorporates all 11 core and administrative workspaces:
 
-## 3. Navigation Structure [PROPOSED]
+- **Dashboard** (`/dashboard`): Metric cards, category distributions, recent uploads, and system health overview with resilient fallback.
+- **Documents Page** (`/documents`): Primary searchable registry with bento grid layout, responsive filters, and safe schema fallback.
+- **Starred Documents** (`/documents/starred`): Personal bookmarks queue.
+- **Reports & Analytics** (`/reports`): Filtered inventory reports, CSV exports, and printable summaries.
+- **Notifications** (`/notifications`): Real-time and persisted user notifications with unread badges.
+- **Tasks & Approvals** (`/tasks`): Actionable queue for document review, administrative sign-off, or certification.
+- **Upload Center** (`/documents/upload`): Single and batch document upload with pre-allocation and folder routing.
+- **User Management** (`/admin/users`): Role and status administration.
+- **Folder & Destination Manager** (`/admin/folders`): Folder hierarchy and destination enabling.
+- **Trash Management** (`/admin/trash`): Soft-deleted records recovery and permanent purge controls.
+- **Audit Log** (`/admin/audit-log`): Tamper-evident append-only audit trail with structured filtering.
 
-Minimal sidebar or top navigation:
-```
-KWD Document Center
-────────────────────
-Documents          (all authenticated users)
-Upload             (STAFF, ADMIN)
-────────────────────
-Users              (ADMIN only)
-Folders            (ADMIN only)
-```
+## 3. Navigation & Visual Design
 
-- Active page indicated with Azure accent
-- Admin section visually separated
-- User profile/logout in header or bottom of sidebar
-- Mobile: collapsible hamburger navigation
+The primary sidebar navigation features clean, accessible SVG icons replacing previous text markers:
 
-## 4. Routing Summary [PROPOSED]
-| Route | Page | Access |
-|---|---|---|
-| `/login` | Login | Public |
-| `/documents` | Documents (search/browse) | Authenticated |
-| `/documents/[id]` | Document Detail | Authenticated |
-| `/documents/upload` | Upload Document | STAFF, ADMIN |
-| `/admin/users` | User Management | ADMIN |
-| `/admin/folders` | Folders & Destinations | ADMIN |
-| `/admin/trash` | Trash (Restore & Purge) | ADMIN |
-| `/admin/audit-log` | Append-Only Audit Log | ADMIN |
+- **Dashboard**: Layout grid icon
+- **Documents**: File text icon
+- **Starred**: Star icon
+- **Reports**: Bar chart icon
+- **Notifications**: Bell icon
+- **My Tasks**: Checkbox list icon
+- **Upload Center**: Upload tray icon
+- **User Access**: User silhouettes icon
+- **Folders & Destinations**: Folder directory icon
+- **Trash**: Trash can icon
+- **Audit Log**: Shield checkmark icon
+
+### Loading & Error Experience
+- **Page-Level Skeleton Loading**: Every protected route includes a dedicated `loading.tsx` using CSS shimmering animations (`@keyframes skeleton-shimmer`) matching the structure of each page (headers, filter bars, metric cards, and tables).
+- **Graceful Query Sanitization**: All database queries incorporate multi-tier fallbacks: if extended columns (e.g. from newer migrations) are pending on the production database, queries automatically fall back to base columns without throwing fatal 500 errors or showing broken registry states.
+
+## 4. Routing Summary
+| Route | Page | Access | Loading Skeleton |
+|---|---|---|---|
+| `/login` | Login | Public | Instant |
+| `/dashboard` | Dashboard Metrics | Authenticated | `dashboard/loading.tsx` |
+| `/documents` | Documents (search/browse) | Authenticated | `documents/loading.tsx` |
+| `/documents/[id]` | Document Detail | Authenticated | `documents/[id]/loading.tsx` |
+| `/documents/starred` | Starred Documents | Authenticated | `documents/starred/loading.tsx` |
+| `/documents/upload` | Upload Document | STAFF, ADMIN | `documents/upload/loading.tsx` |
+| `/reports` | Reports & Exports | Authenticated | `reports/loading.tsx` |
+| `/notifications` | Notifications | Authenticated | `notifications/loading.tsx` |
+| `/tasks` | Approval Tasks | STAFF, ADMIN | `tasks/loading.tsx` |
+| `/admin/users` | User Management | ADMIN | `admin/users/loading.tsx` |
+| `/admin/folders` | Folders & Destinations | ADMIN | `admin/folders/loading.tsx` |
+| `/admin/trash` | Trash (Restore & Purge) | ADMIN | `admin/trash/loading.tsx` |
+| `/admin/audit-log` | Append-Only Audit Log | ADMIN | `admin/audit-log/loading.tsx` |
 
 ## 5. Post-Login Redirect [PROPOSED]
 - After login, redirect to `/documents` (NOT a dashboard).
