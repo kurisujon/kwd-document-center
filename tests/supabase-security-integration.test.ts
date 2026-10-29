@@ -17,6 +17,8 @@ const migrationFiles = [
   "20260917000000_phase4_user_management.sql",
   "20260917010000_harden_users_table_privileges.sql",
   "20260917020000_fix_admin_update_user_coalesce.sql",
+  "20260930000000_add_document_deletion_state.sql",
+  "20261029000000_add_document_confidentiality_and_can_read.sql",
 ].map((file) => fileURLToPath(new URL(`../supabase/migrations/${file}`, import.meta.url)));
 
 type PsqlResult = { code: number | null; stdout: string; stderr: string };
@@ -160,6 +162,19 @@ test(
       assert.equal(await scalarAs(testDatabaseUrl, "authenticated", inactiveEmail, "select count(*) from public.users;"), "1");
       assert.equal(await scalarAs(testDatabaseUrl, "authenticated", adminEmail, "select count(*) from public.documents;"), "1");
       assert.equal(await scalarAs(testDatabaseUrl, "authenticated", inactiveEmail, "select count(*) from public.documents;"), "0");
+
+      await expectSuccess(testDatabaseUrl, `
+        set role service_role;
+        select * from public.admin_set_document_confidential('50000000-0000-4000-8000-000000000005'::uuid, '${adminId}'::uuid, true);
+      `);
+      assert.equal(await scalarAs(testDatabaseUrl, "authenticated", adminEmail, "select count(*) from public.documents;"), "1");
+      assert.equal(await scalarAs(testDatabaseUrl, "authenticated", staffEmail, "select count(*) from public.documents;"), "0");
+      assert.equal(await scalarAs(testDatabaseUrl, "authenticated", viewerEmail, "select count(*) from public.documents;"), "0");
+      await expectRpcError(
+        testDatabaseUrl,
+        `select * from public.admin_set_document_confidential('50000000-0000-4000-8000-000000000005'::uuid, '${staffId}'::uuid, false);`,
+        "ADMIN_REQUIRED",
+      );
 
       for (const role of ["anon", "authenticated", "service_role"] as const) {
         const claims = JSON.stringify({ email: adminEmail });

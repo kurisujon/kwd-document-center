@@ -52,11 +52,16 @@ export default function PrivacyPolicyPage() {
           <p>
             Uploaded document metadata, authorized-user records, roles,
             permissions, and related application data may be registered in
-            Supabase. The system relies on Google, Supabase, and Vercel for
-            authentication, storage, database, and hosting services, so data is
-            processed through those providers as part of operating the
-            application. Access to the application and its document functions is
-            restricted to authorized personnel.
+            Supabase. The system also maintains an internal, append-only audit
+            log of authorized user actions (such as document uploads, opens,
+            downloads, lifecycle changes, and administrative updates) using the
+            authenticated user&apos;s account identity and timestamp; client IP
+            addresses are not stored in the application audit log. The system
+            relies on Google, Supabase, and Vercel for authentication, storage,
+            database, and hosting services, so data is processed through those
+            providers as part of operating the application. Access to the
+            application and its document functions is restricted to authorized
+            personnel.
           </p>
         </section>
 

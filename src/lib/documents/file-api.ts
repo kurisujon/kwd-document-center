@@ -1,5 +1,5 @@
 import { Readable } from "node:stream";
-import { hasMinimumRole } from "../auth/permissions";
+import { canReadDocument, hasMinimumRole } from "../auth/permissions";
 import type { AuthorizationResult } from "../auth/types";
 import { DriveServiceError, isDriveFileId, type DriveService } from "../google/drive-types";
 import type { DocumentRecord } from "./types";
@@ -97,7 +97,23 @@ type FileApiDependencies = {
   getDocument: (documentId: string) => Promise<DocumentRecord | null>;
   isDocumentId: (value: string) => boolean;
   drive: DriveService;
+  recordAccessAudit?: (
+    actorId: string,
+    documentId: string,
+    action: "DOCUMENT_OPEN" | "DOCUMENT_DOWNLOAD",
+  ) => Promise<void>;
 };
+
+const INLINE_PREVIEW_MIME_TYPES = new Set([
+  "application/pdf",
+  "image/png",
+  "image/jpeg",
+]);
+
+export function isInlinePreviewableMimeType(mimeType: string | null | undefined): boolean {
+  if (!mimeType) return false;
+  return INLINE_PREVIEW_MIME_TYPES.has(mimeType.split(";", 1)[0].trim().toLowerCase());
+}
 
 async function authorizedDocument(dependencies: FileApiDependencies, id: string) {
   const authorization = await dependencies.getAuthorization();
@@ -105,12 +121,13 @@ async function authorizedDocument(dependencies: FileApiDependencies, id: string)
   if (!dependencies.isDocumentId(id)) return { response: jsonError("VALIDATION_ERROR", "Document ID is invalid.", 400, "id") };
   try {
     const document = await dependencies.getDocument(id);
-    if (!document) return { response: jsonError("NOT_FOUND", "Document not found.", 404) };
-    if (document.deletion_state && document.deletion_state !== "ACTIVE") return { response: jsonError("NOT_FOUND", "Document not found.", 404) };
+    if (!document || !canReadDocument(authorization.user, document)) {
+      return { response: jsonError("NOT_FOUND", "Document not found.", 404) };
+    }
     if (!document.drive_file_id || !isDriveFileId(document.drive_file_id)) {
       return { response: jsonError("NOT_FOUND", "The document file is unavailable in Google Drive.", 404) };
     }
-    return { document, driveFileId: document.drive_file_id };
+    return { user: authorization.user, document, driveFileId: document.drive_file_id };
   } catch {
     logOperationalFailure({ operation: "documents.file_lookup", outcome: "failure", category: "REGISTRY_READ_FAILED", status: 500, resourceId: id });
     return { response: jsonError("REGISTRY_ERROR", "Document details are temporarily unavailable.", 500) };
@@ -124,38 +141,64 @@ export function createOpenDocumentHandler(dependencies: FileApiDependencies) {
     if ("response" in lookup) return lookup.response;
     try {
       await dependencies.drive.getMetadata(lookup.driveFileId);
-      return protectResponse(new Response(null, {
-        status: 302,
-        headers: { Location: `https://drive.google.com/file/d/${encodeURIComponent(lookup.driveFileId)}/view` },
-      }));
     } catch (error) {
       return driveError(error, lookup.driveFileId);
     }
+    if (dependencies.recordAccessAudit) {
+      try {
+        await dependencies.recordAccessAudit(lookup.user.id, lookup.document.document_id, "DOCUMENT_OPEN");
+      } catch {
+        logOperationalFailure({ operation: "documents.open.audit", outcome: "failure", category: "AUDIT_WRITE_FAILED", status: 500, resourceId: id });
+        return jsonError("REGISTRY_ERROR", "Document access could not be recorded.", 500);
+      }
+    }
+    return protectResponse(new Response(null, {
+      status: 302,
+      headers: { Location: `https://drive.google.com/file/d/${encodeURIComponent(lookup.driveFileId)}/view` },
+    }));
   };
 }
 
-function contentDisposition(name: string): string {
+function contentDisposition(name: string, inline = false): string {
   const fallback = name.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 150) || "document";
-  return `attachment; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(name)}`;
+  const mode = inline ? "inline" : "attachment";
+  return `${mode}; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(name)}`;
 }
 
 export function createDownloadDocumentHandler(dependencies: FileApiDependencies) {
-  return async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+  return async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
     const { id } = await params;
     const lookup = await authorizedDocument(dependencies, id);
     if ("response" in lookup) return lookup.response;
+    const url = new URL(request.url);
+    const requestedInline = url.searchParams.get("inline") === "1";
+
+    let file: Awaited<ReturnType<DriveService["download"]>>;
     try {
-      const file = await dependencies.drive.download(lookup.driveFileId);
-      const headers = new Headers({
-        "Content-Type": file.mimeType || "application/octet-stream",
-        "Content-Disposition": contentDisposition(file.name),
-        "Cache-Control": "private, no-store",
-        "X-Content-Type-Options": "nosniff",
-      });
-      if (file.size !== null && Number.isFinite(file.size)) headers.set("Content-Length", String(file.size));
-      return protectResponse(new Response(Readable.toWeb(file.stream) as ReadableStream, { headers }));
+      file = await dependencies.drive.download(lookup.driveFileId);
     } catch (error) {
       return driveError(error, lookup.driveFileId);
     }
+
+    const serveInline = requestedInline && isInlinePreviewableMimeType(file.mimeType || lookup.document.file_type);
+
+    if (!serveInline && dependencies.recordAccessAudit) {
+      try {
+        await dependencies.recordAccessAudit(lookup.user.id, lookup.document.document_id, "DOCUMENT_DOWNLOAD");
+      } catch {
+        file.stream.destroy();
+        logOperationalFailure({ operation: "documents.download.audit", outcome: "failure", category: "AUDIT_WRITE_FAILED", status: 500, resourceId: id });
+        return jsonError("REGISTRY_ERROR", "Document access could not be recorded.", 500);
+      }
+    }
+
+    const headers = new Headers({
+      "Content-Type": file.mimeType || "application/octet-stream",
+      "Content-Disposition": contentDisposition(file.name, serveInline),
+      "Cache-Control": "private, no-store",
+      "X-Content-Type-Options": "nosniff",
+    });
+    if (file.size !== null && Number.isFinite(file.size)) headers.set("Content-Length", String(file.size));
+    return protectResponse(new Response(Readable.toWeb(file.stream) as ReadableStream, { headers }));
   };
 }

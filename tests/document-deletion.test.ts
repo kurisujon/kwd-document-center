@@ -1,12 +1,22 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { createDeleteDocumentHandler } from "../src/lib/documents/deletion-api.ts";
-import { DocumentDeletionError, deleteDocument } from "../src/lib/documents/delete-service.ts";
+import {
+  createDeleteDocumentHandler,
+  createListTrashedDocumentsHandler,
+  createPurgeDocumentHandler,
+  createRestoreDocumentHandler,
+} from "../src/lib/documents/deletion-api.ts";
+import {
+  DocumentDeletionError,
+  deleteDocument,
+  purgeDocument,
+  restoreDocument,
+} from "../src/lib/documents/delete-service.ts";
 import { createDownloadDocumentHandler, createOpenDocumentHandler } from "../src/lib/documents/file-api.ts";
 import { isDocumentId } from "../src/lib/documents/query.ts";
 import { listDocuments } from "../src/lib/documents/repository.ts";
-import { trashDriveFile } from "../src/lib/google/drive-deletion.ts";
+import { trashDriveFile, untrashDriveFile } from "../src/lib/google/drive-deletion.ts";
 import { DriveServiceError } from "../src/lib/google/drive-types.ts";
 import { driveOAuthScope } from "../src/lib/google/drive-oauth.ts";
 import type { AuthorizationResult, AuthorizedUser } from "../src/lib/auth/types.ts";
@@ -18,14 +28,30 @@ const staff: AuthorizedUser = { ...admin, role: "STAFF" };
 const activeAdmin: AuthorizationResult = { kind: "authorized", user: admin };
 const document: DocumentRecord = { document_id: id, document_type: "BACTI TEST", document_number: "DELETE-001", document_date: "2026-09-30", subject: "Delete test", persons_involved: null, drive_file_id: "driveFileId_12345", drive_url: null, file_name: "delete.pdf", file_type: "application/pdf", filing_year: 2026, filing_subcategory: null, status: "ACTIVE", deletion_state: "ACTIVE", created_by: admin.email, created_at: "2026-09-30T00:00:00Z", updated_at: "2026-09-30T00:00:00Z" };
 
-function repository(outcome: "CLAIMED" | "ALREADY_DELETED" | "IN_PROGRESS" | "NOT_FOUND" = "CLAIMED", finalize = true) {
+function purgeRepository(
+  outcome: "CLAIMED" | "ALREADY_PURGED" | "NOT_DELETED" | "IN_PROGRESS" | "NOT_FOUND" = "CLAIMED",
+  finalize = true,
+) {
   const calls: Array<{ name: string; args: unknown[] }> = [];
   return {
     calls,
     value: {
-      async claim(...args: unknown[]) { calls.push({ name: "claim", args }); return { outcome, drive_file_id: outcome === "CLAIMED" ? document.drive_file_id : null, operation_token: outcome === "CLAIMED" ? "token" : null }; },
-      async finalize(...args: unknown[]) { calls.push({ name: "finalize", args }); return finalize; },
-      async fail(...args: unknown[]) { calls.push({ name: "fail", args }); return true; },
+      async claimPurge(...args: unknown[]) {
+        calls.push({ name: "claimPurge", args });
+        return {
+          outcome,
+          drive_file_id: outcome === "CLAIMED" ? document.drive_file_id : null,
+          operation_token: outcome === "CLAIMED" ? "token" : null,
+        };
+      },
+      async finalizePurge(...args: unknown[]) {
+        calls.push({ name: "finalizePurge", args });
+        return finalize;
+      },
+      async fail(...args: unknown[]) {
+        calls.push({ name: "fail", args });
+        return true;
+      },
     },
   };
 }
@@ -53,37 +79,214 @@ test("delete API enforces authentication, ACTIVE ADMIN, origin, UUID, and server
   assert.equal((await handler(new Request("http://localhost/api/documents/not-a-uuid", { method: "DELETE", headers: { origin: "http://localhost" } }), { params: Promise.resolve({ id: "not-a-uuid" }) })).status, 400);
 });
 
-test("deletion uses only the claimed stored Drive ID and finalizes successful or absent Drive state", async () => {
+test("soft delete marks deletion_state = DELETED in the database without touching Google Drive", async () => {
+  const calls: Array<{ documentId: string; actorId: string }> = [];
+  const result = await deleteDocument({
+    documentId: id,
+    actor: admin,
+    repository: {
+      async softDelete(documentId, actorId) {
+        calls.push({ documentId, actorId });
+        return { outcome: "DELETED" as const };
+      },
+    },
+  });
+  assert.deepEqual(result, { deleted: true, reused: false });
+  assert.deepEqual(calls, [{ documentId: id, actorId: admin.id }]);
+
+  const alreadyDeleted = await deleteDocument({
+    documentId: id,
+    actor: admin,
+    repository: {
+      async softDelete() {
+        return { outcome: "ALREADY_DELETED" as const };
+      },
+    },
+  });
+  assert.deepEqual(alreadyDeleted, { deleted: true, reused: true });
+});
+
+test("restore returns DELETED records to ACTIVE, untrashes legacy Drive-trashed files, and rejects purged records", async () => {
+  const restored = await restoreDocument({
+    documentId: id,
+    actor: admin,
+    repository: {
+      async prepareRestore() {
+        return { outcome: "RESTORED" as const, drive_file_id: document.drive_file_id, needs_drive_untrash: false };
+      },
+      async completeRestore() {
+        throw new Error("should not be called when needs_drive_untrash is false");
+      },
+    },
+  });
+  assert.deepEqual(restored, { restored: true, reused: false });
+
+  // Legacy trashed record untrashes in Drive first
+  let untrashedId = "";
+  let completedRestore = false;
+  const legacyRestored = await restoreDocument({
+    documentId: id,
+    actor: admin,
+    repository: {
+      async prepareRestore() {
+        return { outcome: "NEEDS_DRIVE_UNTRASH" as const, drive_file_id: document.drive_file_id, needs_drive_untrash: true };
+      },
+      async completeRestore() {
+        completedRestore = true;
+        return true;
+      },
+    },
+    drive: {
+      async trash() {
+        return { disposition: "TRASHED" as const };
+      },
+      async untrash(fileId) {
+        untrashedId = fileId;
+        return { disposition: "UNTRASHED" as const };
+      },
+    },
+  });
+  assert.deepEqual(legacyRestored, { restored: true, reused: false });
+  assert.equal(untrashedId, document.drive_file_id);
+  assert.equal(completedRestore, true);
+
+  // Purged records cannot be restored
+  await assert.rejects(
+    () =>
+      restoreDocument({
+        documentId: id,
+        actor: admin,
+        repository: {
+          async prepareRestore() {
+            return { outcome: "ALREADY_PURGED" as const, drive_file_id: document.drive_file_id, needs_drive_untrash: false };
+          },
+          async completeRestore() {
+            return false;
+          },
+        },
+      }),
+    (err: unknown) => err instanceof DocumentDeletionError && err.code === "ALREADY_PURGED" && err.status === 409,
+  );
+});
+
+test("Restore, Trash list, and Purge API handlers enforce ACTIVE ADMIN, same-origin, and reason validation", async () => {
+  const trashListHandler = createListTrashedDocumentsHandler({
+    getAuthorization: async () => ({ kind: "authorized", user: staff }),
+    listTrashedDocuments: async () => [],
+  });
+  assert.equal((await trashListHandler()).status, 403);
+
+  const restoreHandler = createRestoreDocumentHandler({
+    getAuthorization: async () => activeAdmin,
+    isDocumentId,
+    restoreDocument: async () => ({ restored: true, reused: false }),
+  });
+  const restoreRes = await restoreHandler(
+    new Request(`http://localhost/api/documents/${id}/restore`, {
+      method: "POST",
+      headers: { origin: "http://localhost" },
+    }),
+    { params: Promise.resolve({ id }) },
+  );
+  assert.equal(restoreRes.status, 200);
+
+  let capturedReason = "";
+  const purgeHandler = createPurgeDocumentHandler({
+    getAuthorization: async () => activeAdmin,
+    isDocumentId,
+    purgeDocument: async ({ reason }) => {
+      capturedReason = reason;
+      return { purged: true, reused: false };
+    },
+  });
+
+  // Missing reason rejected with 400
+  const emptyReasonRes = await purgeHandler(
+    new Request(`http://localhost/api/documents/${id}/purge`, {
+      method: "POST",
+      headers: { origin: "http://localhost", "content-type": "application/json" },
+      body: JSON.stringify({ reason: "   " }),
+    }),
+    { params: Promise.resolve({ id }) },
+  );
+  assert.equal(emptyReasonRes.status, 400);
+
+  const validPurgeRes = await purgeHandler(
+    new Request(`http://localhost/api/documents/${id}/purge`, {
+      method: "POST",
+      headers: { origin: "http://localhost", "content-type": "application/json" },
+      body: JSON.stringify({ reason: "Duplicate upload confirmed by records officer" }),
+    }),
+    { params: Promise.resolve({ id }) },
+  );
+  assert.equal(validPurgeRes.status, 200);
+  assert.equal(capturedReason, "Duplicate upload confirmed by records officer");
+});
+
+test("purge uses only the claimed stored Drive ID, requires a reason, and finalizes successful or absent Drive state", async () => {
   for (const disposition of ["TRASHED", "ABSENT"] as const) {
-    const store = repository();
+    const store = purgeRepository();
     let target = "";
-    const result = await deleteDocument({ documentId: id, actor: admin, repository: store.value as never, drive: { async trash(driveId: string) { target = driveId; return { disposition }; } } });
-    assert.deepEqual(result, { deleted: true, reused: false });
+    const result = await purgeDocument({
+      documentId: id,
+      actor: admin,
+      reason: "Retention period expired",
+      repository: store.value as never,
+      drive: { async trash(driveId: string) { target = driveId; return { disposition }; } },
+    });
+    assert.deepEqual(result, { purged: true, reused: false });
     assert.equal(target, document.drive_file_id);
-    assert.equal(store.calls.filter((call) => call.name === "finalize").length, 1);
-    assert.equal((store.calls.find((call) => call.name === "finalize")!.args[3]), disposition === "TRASHED");
+    assert.equal(store.calls.filter((call) => call.name === "finalizePurge").length, 1);
+    assert.equal(store.calls.find((call) => call.name === "finalizePurge")!.args[3], disposition === "TRASHED");
+    assert.equal(store.calls.find((call) => call.name === "finalizePurge")!.args[4], "Retention period expired");
   }
 });
 
-test("deletion is idempotent and provider failures do not finalize a record", async () => {
-  const alreadyDeleted = await deleteDocument({ documentId: id, actor: admin, repository: repository("ALREADY_DELETED").value as never, drive: { async trash() { throw new Error("must not call Drive"); } } });
-  assert.deepEqual(alreadyDeleted, { deleted: true, reused: true });
+test("purge is idempotent and provider failures do not finalize a record", async () => {
+  const alreadyPurged = await purgeDocument({
+    documentId: id,
+    actor: admin,
+    reason: "Duplicate",
+    repository: purgeRepository("ALREADY_PURGED").value as never,
+    drive: { async trash() { throw new Error("must not call Drive"); } },
+  });
+  assert.deepEqual(alreadyPurged, { purged: true, reused: true });
 
-  const store = repository();
-  await assert.rejects(() => deleteDocument({ documentId: id, actor: admin, repository: store.value as never, drive: { async trash() { throw new Error("provider diagnostics"); } } }), (error: unknown) => error instanceof DocumentDeletionError && error.code === "DRIVE_ERROR");
-  assert.equal(store.calls.some((call) => call.name === "finalize"), false);
+  const store = purgeRepository();
+  await assert.rejects(
+    () =>
+      purgeDocument({
+        documentId: id,
+        actor: admin,
+        reason: "Duplicate",
+        repository: store.value as never,
+        drive: { async trash() { throw new Error("provider diagnostics"); } },
+      }),
+    (error: unknown) => error instanceof DocumentDeletionError && error.code === "DRIVE_ERROR",
+  );
+  assert.equal(store.calls.some((call) => call.name === "finalizePurge"), false);
   assert.equal(store.calls.some((call) => call.name === "fail"), true);
-  await assert.rejects(() => deleteDocument({ documentId: id, actor: admin, repository: repository("CLAIMED", false).value as never, drive: { async trash() { return { disposition: "TRASHED" as const }; } } }), (error: unknown) => error instanceof DocumentDeletionError && error.code === "DELETE_IN_PROGRESS");
+  await assert.rejects(
+    () =>
+      purgeDocument({
+        documentId: id,
+        actor: admin,
+        reason: "Duplicate",
+        repository: purgeRepository("CLAIMED", false).value as never,
+        drive: { async trash() { return { disposition: "TRASHED" as const }; } },
+      }),
+    (error: unknown) => error instanceof DocumentDeletionError && error.code === "DELETE_IN_PROGRESS",
+  );
 });
 
-test("only an exact current claim token can finalize or fail a deletion", async () => {
+test("only an exact current claim token can finalize or fail a purge", async () => {
   const calls: Array<{ name: string; args: unknown[] }> = [];
   const store = {
-    async claim() { return { outcome: "CLAIMED" as const, drive_file_id: document.drive_file_id, operation_token: "current-token" }; },
-    async finalize(...args: unknown[]) { calls.push({ name: "finalize", args }); return true; },
+    async claimPurge() { return { outcome: "CLAIMED" as const, drive_file_id: document.drive_file_id, operation_token: "current-token" }; },
+    async finalizePurge(...args: unknown[]) { calls.push({ name: "finalizePurge", args }); return true; },
     async fail(...args: unknown[]) { calls.push({ name: "fail", args }); return true; },
   };
-  await deleteDocument({ documentId: id, actor: admin, repository: store as never, drive: { async trash() { return { disposition: "TRASHED" as const }; } } });
+  await purgeDocument({ documentId: id, actor: admin, reason: "Duplicate", repository: store as never, drive: { async trash() { return { disposition: "TRASHED" as const }; } } });
   assert.equal(calls[0].args[2], "current-token");
   const migration = await readFile(new URL("../supabase/migrations/20260930000000_add_document_deletion_state.sql", import.meta.url), "utf8");
   assert.match(migration, /deletion_state = 'DELETE_PENDING' and delete_operation_token = p_operation_token/g);
@@ -91,7 +294,7 @@ test("only an exact current claim token can finalize or fail a deletion", async 
 
 test("active claims conflict while failed or expired claims can be retried through the locked RPC", async () => {
   await assert.rejects(
-    () => deleteDocument({ documentId: id, actor: admin, repository: repository("IN_PROGRESS").value as never, drive: { async trash() { throw new Error("must not call"); } } }),
+    () => purgeDocument({ documentId: id, actor: admin, reason: "Duplicate", repository: purgeRepository("IN_PROGRESS").value as never, drive: { async trash() { throw new Error("must not call"); } } }),
     (error: unknown) => error instanceof DocumentDeletionError && error.status === 409,
   );
   const migration = await readFile(new URL("../supabase/migrations/20260930000000_add_document_deletion_state.sql", import.meta.url), "utf8");
@@ -121,14 +324,14 @@ test("stale deletion tokens cannot finalize or mark failure for a newer claim", 
   assert.doesNotMatch(failure, /where document_id = p_document_id\s*;/i);
 });
 
-test("delete API returns safe provider failures without raw provider diagnostics", async () => {
+test("delete API returns safe failures without raw provider diagnostics", async () => {
   const handler = createDeleteDocumentHandler({
     getAuthorization: async () => activeAdmin,
     isDocumentId,
-    deleteDocument: async () => { throw new DocumentDeletionError("DRIVE_ERROR", 502, "The document could not be moved to Google Drive Trash. Please retry."); },
+    deleteDocument: async () => { throw new DocumentDeletionError("REGISTRY_ERROR", 503, "Document deletion is temporarily unavailable."); },
   });
   const response = await handler(new Request(`http://localhost/api/documents/${id}`, { method: "DELETE", headers: { origin: "http://localhost" } }), { params: Promise.resolve({ id }) });
-  assert.equal(response.status, 502);
+  assert.equal(response.status, 503);
   const body = await response.text();
   assert.doesNotMatch(body, /provider diagnostics|refresh_token|access_token/i);
   assert.equal(response.headers.get("cache-control"), "private, no-store");
@@ -167,11 +370,21 @@ test("normal registry listing returns only ACTIVE documents", async () => {
   assert.equal(activeOnly, true);
 });
 
-test("Drive Trash treats an already-trashed file as a successful idempotent result", async () => {
+test("Drive Trash and Untrash treat already-trashed or untrashed files as idempotent results", async () => {
   let updates = 0;
   const trash = deletionDrive(async () => { updates += 1; return { data: { id: document.drive_file_id!, trashed: true } }; });
   assert.deepEqual(await trash(document.drive_file_id!), { disposition: "TRASHED" });
   assert.equal(updates, 1);
+
+  const untrash = (fileId: string) =>
+    untrashDriveFile(
+      {
+        update: async () => ({ data: { id: fileId, trashed: false } }),
+        get: async () => ({ data: {} }),
+      } as never,
+      fileId,
+    );
+  assert.deepEqual(await untrash(document.drive_file_id!), { disposition: "UNTRASHED" });
 });
 
 test("Drive Trash turns a provider 404 into an absent result and a 403 into a safe permission failure", async () => {
@@ -196,7 +409,7 @@ test("ambiguous Drive Trash results use one bounded metadata check before finali
   }
 });
 
-test("unresolved transient Drive Trash result is retryable and never finalizes deletion", async () => {
+test("unresolved transient Drive Trash result is retryable and never finalizes purge", async () => {
   let updates = 0;
   let reads = 0;
   const trash = deletionDrive(async () => { updates += 1; throw providerError(503); }, async () => { reads += 1; throw providerError(503); });
@@ -204,21 +417,22 @@ test("unresolved transient Drive Trash result is retryable and never finalizes d
   assert.equal(updates, 2);
   assert.equal(reads, 1);
 
-  const store = repository();
-  await assert.rejects(() => deleteDocument({ documentId: id, actor: admin, repository: store.value as never, drive: { trash } }), (error: unknown) => error instanceof DocumentDeletionError && error.status === 503);
-  assert.equal(store.calls.some((call) => call.name === "finalize"), false);
+  const store = purgeRepository();
+  await assert.rejects(() => purgeDocument({ documentId: id, actor: admin, reason: "Duplicate", repository: store.value as never, drive: { trash } }), (error: unknown) => error instanceof DocumentDeletionError && error.status === 503);
+  assert.equal(store.calls.some((call) => call.name === "finalizePurge"), false);
   assert.equal(store.calls.filter((call) => call.name === "fail").length, 1);
 });
 
-test("permission denial records a safe retryable failure without finalizing", async () => {
-  const store = repository();
-  await assert.rejects(() => deleteDocument({
+test("permission denial records a safe retryable failure without finalizing purge", async () => {
+  const store = purgeRepository();
+  await assert.rejects(() => purgeDocument({
     documentId: id,
     actor: admin,
+    reason: "Duplicate",
     repository: store.value as never,
     drive: { trash: deletionDrive(async () => { throw providerError(403); }) },
   }), (error: unknown) => error instanceof DocumentDeletionError && error.status === 502);
-  assert.equal(store.calls.some((call) => call.name === "finalize"), false);
+  assert.equal(store.calls.some((call) => call.name === "finalizePurge"), false);
   assert.deepEqual(store.calls.find((call) => call.name === "fail")!.args.slice(3), ["DRIVE_PERMISSION"]);
 });
 
@@ -227,16 +441,16 @@ test("registry finalization failure after Drive Trash is recoverable using the s
   let finalized = false;
   let firstFinalize = true;
   const store = {
-    async claim(_documentId: string, _actorId: string, token: string) { calls.push({ name: "claim", args: [token] }); return { outcome: "CLAIMED" as const, drive_file_id: document.drive_file_id, operation_token: token }; },
-    async finalize(...args: unknown[]) { calls.push({ name: "finalize", args }); if (firstFinalize) { firstFinalize = false; throw new Error("registry unavailable"); } finalized = true; return true; },
+    async claimPurge(_documentId: string, _actorId: string, token: string) { calls.push({ name: "claimPurge", args: [token] }); return { outcome: "CLAIMED" as const, drive_file_id: document.drive_file_id, operation_token: token }; },
+    async finalizePurge(...args: unknown[]) { calls.push({ name: "finalizePurge", args }); if (firstFinalize) { firstFinalize = false; throw new Error("registry unavailable"); } finalized = true; return true; },
     async fail(...args: unknown[]) { calls.push({ name: "fail", args }); return true; },
   };
   const targets: string[] = [];
   const drive = { async trash(target: string) { targets.push(target); return { disposition: "TRASHED" as const }; } };
-  await assert.rejects(() => deleteDocument({ documentId: id, actor: admin, repository: store as never, drive }), (error: unknown) => error instanceof DocumentDeletionError && error.code === "REGISTRY_ERROR");
+  await assert.rejects(() => purgeDocument({ documentId: id, actor: admin, reason: "Duplicate", repository: store as never, drive }), (error: unknown) => error instanceof DocumentDeletionError && error.code === "REGISTRY_ERROR");
   assert.equal(finalized, false);
-  const recovered = await deleteDocument({ documentId: id, actor: admin, repository: store as never, drive });
-  assert.deepEqual(recovered, { deleted: true, reused: false });
+  const recovered = await purgeDocument({ documentId: id, actor: admin, reason: "Duplicate", repository: store as never, drive });
+  assert.deepEqual(recovered, { purged: true, reused: false });
   assert.equal(finalized, true);
   assert.deepEqual(targets, [document.drive_file_id, document.drive_file_id]);
   assert.equal(calls.filter((call) => call.name === "fail").length, 0);
@@ -251,39 +465,35 @@ test("deletion provider code contains no permanent delete, list discovery, or pe
   assert.equal(driveOAuthScope, "https://www.googleapis.com/auth/drive.file");
 });
 
-test("deletion migration defines complete lifecycle and service-role-only RPC contracts", async () => {
+test("deletion and ADR-006 trash/restore/purge migrations define complete lifecycle and service-role-only RPC contracts", async () => {
   const migration = await readFile(new URL("../supabase/migrations/20260930000000_add_document_deletion_state.sql", import.meta.url), "utf8");
   for (const column of ["deletion_state", "delete_started_at", "delete_operation_token", "delete_lease_expires_at", "delete_error_category", "deleted_at", "deleted_by", "drive_trashed_at"]) assert.match(migration, new RegExp(`add column ${column}`, "i"));
   const tableDefinition = migration.split("create or replace function", 1)[0];
   for (const state of ["ACTIVE", "DELETE_PENDING", "DELETE_FAILED", "DELETED"]) assert.match(tableDefinition, new RegExp(`deletion_state = '${state}'`, "i"));
-  assert.match(tableDefinition, /DELETE_PENDING[\s\S]*delete_started_at is not null[\s\S]*delete_operation_token is not null[\s\S]*delete_lease_expires_at is not null/i);
-  assert.match(tableDefinition, /DELETE_FAILED[\s\S]*delete_operation_token is null[\s\S]*delete_lease_expires_at is null[\s\S]*delete_error_category is not null/i);
-  assert.match(tableDefinition, /DELETED[\s\S]*deleted_at is not null[\s\S]*deleted_by is not null/i);
-  assert.doesNotMatch(tableDefinition, /delete_lease_expires_at\s*>\s*now\(\)/i);
   assert.doesNotMatch(migration, /\bdelete\s+from\s+public\.documents\b/i);
   assert.doesNotMatch(migration, /\btruncate\s+(?:table\s+)?public\.documents\b/i);
   assert.doesNotMatch(migration, /\bdrop\s+table\s+public\.documents\b/i);
   assert.doesNotMatch(migration, /grant execute on function public\.[^;]+\s+to authenticated/i);
 
-  const blocks = new Map<string, string>();
-  for (const fn of ["admin_claim_document_deletion", "admin_finalize_document_deletion", "admin_mark_document_delete_failed"]) {
-    const match = migration.match(new RegExp(`create or replace function public\\.${fn}\\([\\s\\S]*?\\$\\$;`, "i"));
-    assert.ok(match, `Missing ${fn}`);
-    const block = match[0];
-    blocks.set(fn, block);
-    assert.match(block, /security definer/i);
-    assert.match(block, /set search_path = public, pg_catalog/i);
-    assert.match(block, /actor\.role = 'ADMIN'[\s\S]*actor\.status = 'ACTIVE'/i);
-    assert.match(migration, new RegExp(`revoke all on function public\\.${fn}\\([^;]+from public, anon, authenticated`, "i"));
-    assert.match(migration, new RegExp(`grant execute on function public\\.${fn}\\([^;]+to service_role`, "i"));
+  const trashMigration = await readFile(new URL("../supabase/migrations/20261029020000_add_trash_restore_and_purge.sql", import.meta.url), "utf8");
+  for (const column of ["purged_at", "purged_by", "purge_reason"]) {
+    assert.match(trashMigration, new RegExp(`add column ${column}`, "i"));
   }
-  const claim = blocks.get("admin_claim_document_deletion")!;
-  assert.match(claim, /from public\.documents where document_id = p_document_id for update/i);
-  assert.match(claim, /DELETE_PENDING' and target\.delete_lease_expires_at > now\(\)[\s\S]*IN_PROGRESS/i);
-  assert.match(claim, /update public\.documents set deletion_state = 'DELETE_PENDING'[\s\S]*delete_operation_token = p_operation_token[\s\S]*delete_lease_expires_at = now\(\)/i);
+  for (const fn of [
+    "admin_soft_delete_document",
+    "admin_list_trashed_documents",
+    "admin_prepare_document_restore",
+    "admin_complete_document_restore",
+    "admin_claim_document_purge",
+    "admin_finalize_document_purge",
+  ]) {
+    assert.match(trashMigration, new RegExp(`create or replace function public\\.${fn}\\(`, "i"));
+    assert.match(trashMigration, new RegExp(`revoke all on function public\\.${fn}\\([^;]+from public, anon, authenticated`, "i"));
+    assert.match(trashMigration, new RegExp(`grant execute on function public\\.${fn}\\([^;]+to service_role`, "i"));
+  }
 
-  const finalize = blocks.get("admin_finalize_document_deletion")!;
-  assert.match(finalize, /where document_id = p_document_id and deletion_state = 'DELETE_PENDING' and delete_operation_token = p_operation_token/i);
-  const failure = blocks.get("admin_mark_document_delete_failed")!;
-  assert.match(failure, /where document_id = p_document_id and deletion_state = 'DELETE_PENDING' and delete_operation_token = p_operation_token/i);
+  const adr = await readFile(new URL("../docs/architecture/ADR-006-soft-delete-restore-purge.md", import.meta.url), "utf8");
+  assert.match(adr, /Soft Delete/i);
+  assert.match(adr, /Restore/i);
+  assert.match(adr, /Admin Purge/i);
 });

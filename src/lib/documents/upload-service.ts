@@ -9,7 +9,7 @@ import type { HierarchyFolderRecord } from "./hierarchy-repository";
 import type { UploadAttempt, UploadMetadataSnapshot, UploadResult, ValidatedAdminUpload, ValidatedFolderUpload } from "./upload-types";
 import { logOperationalFailure } from "../observability/log";
 
-export type UploadErrorCode = "VALIDATION_ERROR" | "DRIVE_ERROR" | "REGISTRY_ERROR" | "UPLOAD_IN_PROGRESS";
+export type UploadErrorCode = "VALIDATION_ERROR" | "DRIVE_ERROR" | "REGISTRY_ERROR" | "UPLOAD_IN_PROGRESS" | "DUPLICATE_DOCUMENT";
 
 export class DocumentUploadError extends Error {
   readonly code: UploadErrorCode;
@@ -28,6 +28,10 @@ function snapshotOf(upload: ValidatedAdminUpload): UploadMetadataSnapshot {
     file_name: upload.file.name,
     file_type: upload.file.mimeType,
     file_size: upload.file.size,
+    custom_metadata: upload.metadata.custom_metadata,
+    file_sha256: upload.fileSha256,
+    duplicate_override: upload.duplicateOverride,
+    duplicate_override_reason: upload.duplicateOverrideReason,
   };
 }
 
@@ -60,7 +64,8 @@ function sameSnapshot(left: UploadMetadataSnapshot, right: UploadMetadataSnapsho
     && left.filing_subcategory === right.filing_subcategory
     && left.file_name === right.file_name
     && left.file_type === right.file_type
-    && left.file_size === right.file_size;
+    && left.file_size === right.file_size
+    && JSON.stringify(left.custom_metadata ?? {}) === JSON.stringify(right.custom_metadata ?? {});
 }
 
 async function loadAfterUniqueConflict(repository: UploadAttemptRepository, key: string): Promise<UploadAttempt> {
@@ -99,6 +104,29 @@ export async function uploadAdminDocument(input: {
       return { document, created: false };
     }
     if (attempt.status === "PENDING_REGISTRY") return finalize(repository, attempt, user, false);
+  }
+
+  if (!attempt) {
+    if (!upload.duplicateOverride && repository.checkDuplicate && upload.fileSha256) {
+      const duplicate = await repository.checkDuplicate(
+        user.id,
+        upload.metadata.document_type,
+        upload.metadata.document_number,
+        upload.fileSha256,
+      );
+      if (duplicate) {
+        const isConfidential = duplicate.isConfidential || duplicate.duplicateKind.startsWith("CONFIDENTIAL");
+        const kind = duplicate.duplicateKind.includes("HASH") ? "HASH" : "NUMBER";
+        const message = kind === "HASH"
+          ? (isConfidential
+              ? "A matching file is already registered in the Document Center. Provide an override reason to proceed."
+              : `An identical file is already registered as ${duplicate.existingDocumentNumber || "a document"}${duplicate.existingSubject ? ` ("${duplicate.existingSubject}")` : ""}. Provide an override reason to proceed.`)
+          : (isConfidential
+              ? `A document with number "${upload.metadata.document_number}" is already registered. Provide an override reason to proceed.`
+              : `A document with number "${duplicate.existingDocumentNumber || upload.metadata.document_number}" is already registered ("${duplicate.existingSubject || ""}"). Provide an override reason to proceed.`);
+        throw new DocumentUploadError("DUPLICATE_DOCUMENT", message, 409);
+      }
+    }
   }
 
   let folderId: string;

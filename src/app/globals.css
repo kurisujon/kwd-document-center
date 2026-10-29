@@ -734,6 +734,8 @@ tbody tr:hover { background: #f8fafc; }
 .document-actions { display: grid; gap: .65rem; margin-top: 1.25rem; }
 .detail-admin-actions { margin-top: .5rem; padding-top: .75rem; border-top: 1px solid var(--color-border); }
 .detail-admin-actions .table-action-danger { width: 100%; min-height: 2.5rem; }
+.confidentiality-control { margin-top: 1.4rem; padding-top: 1.25rem; border-top: 1px solid var(--color-border); }
+.confidentiality-control > p:not(.eyebrow) { margin: .35rem 0 0; color: var(--color-text-secondary); }
 .file-unavailable { margin: 0; padding: .8rem; border-radius: var(--radius-inner); color: #7f1d1d; background: #fef2f2; }
 .placeholder, .registry-error, .users-state { max-width: 44rem; padding: 1.5rem; }
 .placeholder h1, .registry-error h1 { margin: 0; font-size: 1.35rem; }
@@ -951,4 +953,101 @@ tbody tr:hover { background: #f8fafc; }
 .form-success,
 .file-unavailable {
   border-radius: var(--radius-inner);
+}
+
+/* Milestone 1: Document inline preview, activity panel, and admin trash actions */
+.document-preview-section, .document-activity-section {
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.document-preview-frame {
+  width: 100%;
+  height: 36rem;
+  margin-top: 0.75rem;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-muted);
+}
+
+.document-preview-image {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin-top: 0.75rem;
+  border: 1px solid var(--color-border);
+}
+
+.trash-actions-wrap {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.purge-inline-form {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-error);
+  background: var(--color-surface-muted);
+}
+
+/* Milestone 6: Print stylesheet and accessibility focus polish */
+@media print {
+  .sidebar,
+  .mobile-header,
+  .nav-scrim,
+  .no-print,
+  .document-actions,
+  .row-actions,
+  .search-panel,
+  .back-link,
+  .pagination,
+  .menu-button {
+    display: none !important;
+  }
+
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-size: 11pt !important;
+  }
+
+  .app-shell {
+    display: block !important;
+  }
+
+  .app-main, .page-frame {
+    margin: 0 !important;
+    padding: 0 !important;
+    max-width: none !important;
+  }
+
+  .report-print-table table,
+  .document-detail {
+    border: 1px solid #000000 !important;
+    width: 100% !important;
+  }
+
+  th, td {
+    border: 1px solid #000000 !important;
+    color: #000000 !important;
+  }
+
+  .document-qr-card {
+    border: 1px dashed #000000 !important;
+    background: transparent !important;
+    page-break-inside: avoid;
+  }
+
+  .document-qr-card button {
+    display: none !important;
+  }
+}
+
+/* Accessibility focus ring */
+:focus-visible {
+  outline: 2px solid var(--color-accent, #0284c7) !important;
+  outline-offset: 2px !important;
+}
 }

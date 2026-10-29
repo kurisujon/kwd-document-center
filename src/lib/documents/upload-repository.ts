@@ -79,6 +79,14 @@ export function createFolderUploadAttemptRepository(supabase: SupabaseClient): F
   };
 }
 
+export type DuplicateCheckResult = {
+  duplicateKind: "HASH" | "NUMBER" | "CONFIDENTIAL_HASH" | "CONFIDENTIAL_NUMBER";
+  existingDocumentId: string;
+  existingDocumentNumber: string | null;
+  existingSubject: string | null;
+  isConfidential: boolean;
+};
+
 export interface UploadAttemptRepository {
   findByIdempotencyKey(key: string): Promise<UploadAttempt | null>;
   create(key: string, creatorId: string, snapshot: UploadMetadataSnapshot): Promise<UploadAttempt>;
@@ -91,6 +99,12 @@ export interface UploadAttemptRepository {
   markFailed(attemptId: string, expectedDriveFileId: string, expectedOperationToken: string, safeErrorCode: string): Promise<{ changed: boolean; attempt: UploadAttempt | null }>;
   finalize(attempt: UploadAttempt, creatorEmail: string): Promise<DocumentRecord>;
   getDocument(documentId: string): Promise<DocumentRecord | null>;
+  checkDuplicate?(
+    actorId: string,
+    documentType: string,
+    documentNumber: string,
+    fileSha256: string,
+  ): Promise<DuplicateCheckResult | null>;
 }
 
 export function createUploadAttemptRepository(supabase: SupabaseClient): UploadAttemptRepository {
@@ -242,6 +256,9 @@ export function createUploadAttemptRepository(supabase: SupabaseClient): UploadA
         p_filing_year: snapshot.filing_year,
         p_filing_subcategory: snapshot.filing_subcategory,
         p_created_by: creatorEmail,
+        p_custom_metadata: snapshot.custom_metadata ?? {},
+        p_file_sha256: snapshot.file_sha256 ?? null,
+        p_duplicate_override_reason: snapshot.duplicate_override_reason ?? null,
       });
       if (error || !data) throw new Error("Unable to finalize registry record.");
       return data as DocumentRecord;
@@ -250,6 +267,29 @@ export function createUploadAttemptRepository(supabase: SupabaseClient): UploadA
       const { data, error } = await supabase.from("documents").select(documentColumns).eq("document_id", documentId).maybeSingle();
       if (error) throw new Error("Unable to retrieve completed upload.");
       return data as DocumentRecord | null;
+    },
+    async checkDuplicate(actorId, documentType, documentNumber, fileSha256) {
+      const { data, error } = await supabase.rpc("check_document_duplicate", {
+        p_actor_id: actorId,
+        p_document_type: documentType,
+        p_document_number: documentNumber,
+        p_file_sha256: fileSha256,
+      });
+      if (error || !Array.isArray(data) || data.length === 0) return null;
+      const row = data[0] as {
+        duplicate_kind: "HASH" | "NUMBER" | "CONFIDENTIAL_HASH" | "CONFIDENTIAL_NUMBER";
+        existing_document_id: string;
+        existing_document_number: string | null;
+        existing_subject: string | null;
+        is_confidential: boolean;
+      };
+      return {
+        duplicateKind: row.duplicate_kind,
+        existingDocumentId: row.existing_document_id,
+        existingDocumentNumber: row.existing_document_number,
+        existingSubject: row.existing_subject,
+        isConfidential: Boolean(row.is_confidential),
+      };
     },
   };
 }

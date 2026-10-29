@@ -15,7 +15,7 @@ export const runtime = "nodejs";
 export const GET = createListDocumentsHandler({
   getAuthorization,
   parseListQuery: parseDocumentListQuery,
-  listDocuments: async (query) => listDocuments(await createClient(), query),
+  listDocuments: async (query, viewer) => listDocuments(await createClient(), query, viewer),
 });
 
 export const POST = createUploadDocumentHandler({

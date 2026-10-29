@@ -57,12 +57,27 @@ Responsibilities:
 ### Documents
 | Operation | Method | Purpose | Auth Required | Min Role |
 |---|---|---|---|---|
-| List/Search documents | GET /api/documents | Search registry with filters | Yes | VIEWER |
+| List/Search documents | GET /api/documents | Search registry with filters (standard query + `meta_*` type-specific custom filters) | Yes | VIEWER |
+| Full-text search with snippets | GET /api/search | Full-text search across extracted text and metadata with snippets | Yes | VIEWER |
 | Get document detail | GET /api/documents/:id | Get single document metadata | Yes | VIEWER |
+| Update document confidentiality | PATCH /api/documents/:id | Toggle `confidential` flag on an active document | Yes | ADMIN |
+| Change document status | PATCH /api/documents/:id/status | Transition document lifecycle status (state machine validation) | Yes | STAFF / ADMIN |
+| List document links | GET /api/documents/:id/links | Retrieve related, superseded, or amending documents | Yes | VIEWER |
+| Add document link | POST /api/documents/:id/links | Link document with cycle prevention for SUPERSEDES | Yes | STAFF |
+| Remove document link | DELETE /api/documents/:id/links/:linkId | Remove document relationship link | Yes | STAFF |
+| List document versions | GET /api/documents/:id/versions | Retrieve version provenance history | Yes | VIEWER |
+| Upload new version | POST /api/documents/:id/versions | Upload subsequent version file to Drive and update active pointer | Yes | STAFF |
+| List document tags | GET /api/documents/:id/tags | Retrieve assigned tags | Yes | VIEWER |
+| Add document tag | POST /api/documents/:id/tags | Assign tag to document | Yes | STAFF |
+| Remove document tag | DELETE /api/documents/:id/tags/:tagId | Remove tag from document | Yes | STAFF |
 | Upload document | POST /api/documents | Upload file + create registry entry | Yes | STAFF |
-| Open file | GET /api/documents/:id/open | Validate Drive availability and redirect | Yes | VIEWER |
-| Download file | GET /api/documents/:id/download | Stream through the server | Yes | VIEWER |
-| Delete document | DELETE /api/documents/:id | Move the stored Drive file to Trash and soft-delete its registry record | Yes | ADMIN |
+| Open file | GET /api/documents/:id/open | Validate Drive availability, record `DOCUMENT_OPEN` audit entry, and redirect | Yes | VIEWER |
+| Download file | GET /api/documents/:id/download | Stream through the server (records `DOCUMENT_DOWNLOAD` unless `?inline=1` preview) | Yes | VIEWER |
+| Soft-delete document | DELETE /api/documents/:id | Mark `deletion_state = 'DELETED'` in registry without touching Google Drive (ADR-006) | Yes | ADMIN |
+| Restore document | POST /api/documents/:id/restore | Restore soft-deleted record from Trash to `ACTIVE` (ADR-006) | Yes | ADMIN |
+| Purge document | POST /api/documents/:id/purge | Move Drive file to Google Drive Trash and mark record purged with a required `reason` (ADR-006) | Yes | ADMIN |
+| List Trash | GET /api/admin/trash | List soft-deleted documents awaiting restore or purge | Yes | ADMIN |
+| List Audit Log | GET /api/admin/audit-log | Query append-only audit log with filters (`actor`, `action`, `entityType`, `entityId`, `dateFrom`, `dateTo`) | Yes | ADMIN |
 
 ### Users (Admin Only) [CONFIRMED PHASE 4]
 | Operation | Method | Purpose | Auth Required | Min Role |
@@ -103,28 +118,32 @@ permission mutation.
 
 The Drive setup callback is separate from `/auth/callback`, which exchanges the Supabase Google login code. The refresh token is displayed only in the one-time administrator setup response for manual Vercel configuration.
 
-### Upload Flow (Detailed) [PHASE 3]
+### Upload Flow (Detailed) [PHASE 3 & MILESTONE 2]
 ```
 POST /api/documents
-  Body: { file, metadata, idempotency_key }
+  Body: { file, metadata, idempotency_key, duplicate_override, duplicate_override_reason }
 
   1. Validate session → 401 if unauthenticated; 403 if unauthorized
   2. Validate role >= STAFF → 403 if insufficient
-  3. Validate metadata (Zod) → 400 if invalid
-  4. Validate file (type, size) → 400 if invalid
+  3. Validate metadata (Zod, including type-specific custom fields from reviewed code config) → 400 if invalid
+  4. Validate file (type, size) and compute SHA-256 hash → 400 if invalid
   5. Check idempotency_key in upload_attempts
      - If COMPLETE: return existing document
-     - If PENDING_REGISTRY: skip to step 8
-  6. Create or find upload_attempts record (status: PENDING_UPLOAD)
+     - If PENDING_REGISTRY: skip to step 9
+  6. Check duplicates (exact file_sha256 or duplicate document_number within document_type)
+     - Queries check can_read_document to prevent leaking confidential document metadata
+     - If duplicate found and duplicate_override is false/missing: return 409 DUPLICATE_DOCUMENT
+     - If duplicate_override is true: require non-empty duplicate_override_reason (audited)
+  7. Create or find upload_attempts record (status: PENDING_UPLOAD)
      - Atomically claim Drive ID reservation lease (sets operation_token and reservation_expires_at)
      - Only the reservation winner calls generateFileId()
      - Persist the Drive file ID and transition attempt to UPLOADING
-  7. Resumable upload file to Drive using that exact persisted file ID
+  8. Resumable upload file to Drive using that exact persisted file ID
      - On failure: conditionally mark attempt as FAILED using current operation_token, return 500/503
-  8. Update upload_attempts (status: PENDING_REGISTRY with matching operation_token; persisted drive_file_id remains unchanged)
-  9. Transactionally insert the Supabase document and link the attempt
-     - On failure: keep status as PENDING_REGISTRY and retry with the same key
-  10. Return 201 with document data
+  9. Update upload_attempts (status: PENDING_REGISTRY with matching operation_token; persisted drive_file_id remains unchanged)
+  10. Transactionally insert the Supabase document (with custom_metadata, file_sha256, duplicate_override_reason) and link the attempt
+      - On failure: keep status as PENDING_REGISTRY and retry with the same key
+  11. Return 201 with document data
 ```
 
 ### Multi-file upload [CONFIRMED, PHASE 7B]
@@ -157,6 +176,7 @@ Standardized JSON error responses:
 
 Error codes:
 - VALIDATION_ERROR — invalid input
+- DUPLICATE_DOCUMENT — file hash or document number already registered (reasoned override allowed)
 - UNAUTHORIZED — not logged in
 - FORBIDDEN — insufficient role
 - NOT_FOUND — document/user not found
@@ -194,3 +214,46 @@ Hierarchy results are browser-safe: `ACTIVE` is 201, `ACTIVE_EXISTING` is 200,
 safe 500. The response whitelists application folder identity and safe
 hierarchy metadata; it never serializes provider IDs, tokens, leases, or raw
 diagnostics.
+
+## 8. Notifications, Comments, Retention, and Cron [IMPLEMENTED, MILESTONE 5]
+
+### Notifications
+- `GET /api/notifications?unreadOnly=1&limit=50`: Returns `{ notifications, total, unreadCount }` for the authenticated active user.
+- `PATCH /api/notifications`: JSON mutation to mark a notification or all notifications as read (`{ notificationId: string }` or `{ all: true }`).
+
+### Comments
+- `GET /api/documents/[id]/comments`: Lists all comments on the specified document. Strictly checks `can_read_document` to prevent unauthorized viewers from accessing confidential document comments.
+- `POST /api/documents/[id]/comments`: Adds a comment (`{ content: string }`, 1–2000 chars) for an active staff or admin user. Logs `DOCUMENT_COMMENT_CREATE` in the audit log.
+
+### Retention Lifecycle
+- `POST /api/documents/[id]/retention`: Admin-only approval of legal records disposition (`{ action: 'ARCHIVE' | 'DISPOSE', notes?: string }`). Records disposition justification, updates lifecycle status, and writes `DOCUMENT_RETENTION_APPROVE` to the audit log. The system never automatically disposes of records.
+
+### Scheduled Cron Worker
+- `GET /api/cron/reminders` / `POST /api/cron/reminders`: Trigger endpoint for Vercel Cron or external scheduler. Secured with `Authorization: Bearer <CRON_SECRET>`. Evaluates 90-, 30-, and 7-day expiration/due-date thresholds (deduplicated via `reminders_sent`) and evaluates retention eligibility under NAP RA 9470 disposition schedules.
+
+## 9. Dashboard, Reports, and Starred Bookmarks [IMPLEMENTED, MILESTONE 6]
+
+### Dashboard Metrics
+- `GET /api/dashboard`: Aggregates active document counts, 90-day upcoming expirations, pending retention reviews, category breakdowns, 5 recent uploads, and 5 upcoming expirations. Strictly enforces `can_read_document` across all metrics and lists.
+
+### Reports Export
+- `GET /api/reports/export`: Streams an RFC 4180 compliant CSV report with `Content-Disposition: attachment`. Filters by category, year, date range, and status. Writes `REPORT_EXPORT_CSV` audit log entry.
+
+### Starred Bookmarks
+- `GET /api/documents/[id]/star`: Checks if current user has starred the specified document.
+- `POST /api/documents/[id]/star`: Toggles star bookmark for authenticated user via `toggle_document_star` RPC. Enforces `can_read_document`.
+
+## 10. Document Approval Routing and Tasks [IMPLEMENTED, MILESTONE 7]
+
+### Route Templates
+- `GET /api/approvals/routes`: Returns list of configured sequential approval route templates (`approval_routes`).
+
+### Document Approvals
+- `GET /api/documents/[id]/approvals`: Returns ordered approval steps for the specified document. Enforces `can_read_document`.
+- `POST /api/documents/[id]/approvals`: Initiates an approval route for the document (`{ customSteps?: Array<{ step_number, title, role, approver_id? }> }`). Transitions document to `UNDER_REVIEW`, creates steps (step 1 `IN_PROGRESS`, subsequent `PENDING`), and logs `APPROVAL_ROUTE_START`. Requires STAFF or ADMIN role.
+- `POST /api/documents/[id]/approvals/[stepId]`: Submits sign-off decision (`{ action: 'APPROVE' | 'RETURN', notes?: string }`).
+  - `APPROVE`: Verifies that all prior steps are completed (`PRIOR_STEP_UNAPPROVED` check), checks caller authorization, marks step `APPROVED`, advances next step to `IN_PROGRESS` (or promotes document status to `APPROVED` if final step), and logs `APPROVAL_STEP_APPROVE`.
+  - `RETURN`: Marks step `RETURNED`, records feedback notes, keeps document in `UNDER_REVIEW`, and logs `APPROVAL_STEP_RETURN`.
+
+### My Tasks
+- `GET /api/tasks`: Returns list of actionable pending review steps (`get_user_approval_tasks` RPC) for the caller matching their assigned ID or role. Enforces `can_read_document` to prevent confidential document leakage.

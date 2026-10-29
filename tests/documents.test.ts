@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { createGetDocumentHandler, createListDocumentsHandler } from "../src/lib/documents/api.ts";
-import { hasMinimumRole } from "../src/lib/auth/permissions.ts";
+import { createPatchDocumentConfidentialityHandler } from "../src/lib/documents/confidentiality-api.ts";
+import { createDownloadDocumentHandler, createOpenDocumentHandler } from "../src/lib/documents/file-api.ts";
+import { canReadDocument, hasMinimumRole } from "../src/lib/auth/permissions.ts";
 import { isDocumentId, parseDocumentListQuery } from "../src/lib/documents/query.ts";
-import { getDocumentById, listDocuments } from "../src/lib/documents/repository.ts";
-import type { AuthorizationResult } from "../src/lib/auth/types.ts";
+import { getDocumentById, listDocuments, listDocumentTypes } from "../src/lib/documents/repository.ts";
+import type { AuthorizationResult, AuthorizedUser } from "../src/lib/auth/types.ts";
 import type { DocumentRecord, PaginatedDocuments } from "../src/lib/documents/types.ts";
 
 const document: DocumentRecord = {
@@ -230,4 +233,205 @@ test("the registry service returns null for a missing document", async () => {
   };
   const supabase = { from: () => request };
   assert.equal(await getDocumentById(supabase as never, document.document_id), null);
+});
+
+const adminUser: AuthorizedUser = { id: "11111111-1111-4111-8111-111111111111", email: "admin@example.test", name: "Admin", role: "ADMIN", status: "ACTIVE" };
+const staffUser: AuthorizedUser = { id: "22222222-2222-4222-8222-222222222222", email: "staff@example.test", name: "Staff", role: "STAFF", status: "ACTIVE" };
+const viewerUser: AuthorizedUser = { id: "33333333-3333-4333-8333-333333333333", email: "viewer@example.test", name: "Viewer", role: "VIEWER", status: "ACTIVE" };
+const confidentialDoc: DocumentRecord = {
+  ...document,
+  document_id: "99999999-9999-4999-8999-999999999999",
+  subject: "Confidential executive board investigation",
+  drive_file_id: "driveFileId_99999",
+  confidential: true,
+};
+
+test("canReadDocument enforces active status, active deletion_state, and admin-only confidential access", () => {
+  for (const user of [adminUser, staffUser, viewerUser]) {
+    assert.equal(canReadDocument(user, { deletion_state: "ACTIVE", confidential: false }), true);
+    assert.equal(canReadDocument(user, { deletion_state: "DELETED", confidential: false }), false);
+  }
+  assert.equal(canReadDocument(adminUser, { deletion_state: "ACTIVE", confidential: true }), true);
+  assert.equal(canReadDocument(staffUser, { deletion_state: "ACTIVE", confidential: true }), false);
+  assert.equal(canReadDocument(viewerUser, { deletion_state: "ACTIVE", confidential: true }), false);
+  assert.equal(canReadDocument({ ...adminUser, status: "INACTIVE" }, { deletion_state: "ACTIVE", confidential: false }), false);
+});
+
+test("confidential documents are hidden from non-admin users in lists, detail, type filters, open, and download", async () => {
+  for (const nonAdmin of [staffUser, viewerUser]) {
+    const eqCalls: Array<[string, unknown]> = [];
+    const queryChain = {
+      select: () => queryChain,
+      eq: (col: string, val: unknown) => { eqCalls.push([col, val]); return queryChain; },
+      order: () => queryChain,
+      range: async () => ({ data: [document, confidentialDoc], error: null, count: 2 }),
+      maybeSingle: async () => ({ data: confidentialDoc, error: null }),
+    };
+    const supabase = { from: () => queryChain };
+
+    const listed = await listDocuments(supabase as never, { page: 1, pageSize: 25, sortBy: "created_at", sortOrder: "desc" }, nonAdmin);
+    assert.equal(eqCalls.some(([col, val]) => col === "confidential" && val === false), true);
+    assert.deepEqual(listed.documents.map((d) => d.document_id), [document.document_id]);
+
+    assert.equal(await getDocumentById(supabase as never, confidentialDoc.document_id, nonAdmin), null);
+    await listDocumentTypes(supabase as never, nonAdmin);
+
+    const listResp = await listHandler({ kind: "authorized", user: nonAdmin }, async () => ({
+      documents: [document, confidentialDoc],
+      total: 2,
+      page: 1,
+      pageSize: 25,
+    }))(request("/api/documents") as never);
+    const listBody = await listResp.json();
+    assert.deepEqual(listBody.documents.map((d: DocumentRecord) => d.document_id), [document.document_id]);
+    assert.equal(listBody.total, 1);
+    assert.doesNotMatch(JSON.stringify(listBody), /Confidential executive board investigation/);
+
+    const detailResp = await detailHandler({ kind: "authorized", user: nonAdmin }, async () => confidentialDoc)(
+      request(`/api/documents/${confidentialDoc.document_id}`) as never,
+      { params: Promise.resolve({ id: confidentialDoc.document_id }) },
+    );
+    assert.equal(detailResp.status, 404);
+    assert.doesNotMatch(await detailResp.text(), /Confidential executive board investigation/);
+
+    let driveCalls = 0;
+    const fileDeps = {
+      getAuthorization: async () => ({ kind: "authorized" as const, user: nonAdmin }),
+      isDocumentId,
+      getDocument: async () => confidentialDoc,
+      drive: {
+        async generateFileId() { return "unused"; },
+        async upload() { throw new Error("unused"); },
+        async getMetadata() { driveCalls += 1; throw new Error("must not call Drive"); },
+        async download() { driveCalls += 1; throw new Error("must not call Drive"); },
+      },
+    };
+    const context = { params: Promise.resolve({ id: confidentialDoc.document_id }) };
+    assert.equal((await createOpenDocumentHandler(fileDeps)(new Request("http://localhost"), context)).status, 404);
+    assert.equal((await createDownloadDocumentHandler(fileDeps)(new Request("http://localhost"), context)).status, 404);
+    assert.equal(driveCalls, 0);
+  }
+
+  const adminDetail = await detailHandler({ kind: "authorized", user: adminUser }, async () => confidentialDoc)(
+    request(`/api/documents/${confidentialDoc.document_id}`) as never,
+    { params: Promise.resolve({ id: confidentialDoc.document_id }) },
+  );
+  assert.equal(adminDetail.status, 200);
+});
+
+test("PATCH document confidentiality enforces ACTIVE ADMIN, same-origin, strict JSON validation, and server-derived actor", async () => {
+  const id = confidentialDoc.document_id;
+  for (const [auth, expectedStatus] of [
+    [{ kind: "unauthenticated" }, 401],
+    [{ kind: "not-authorized" }, 403],
+    [{ kind: "inactive" }, 403],
+    [{ kind: "authorized", user: staffUser }, 403],
+    [{ kind: "authorized", user: viewerUser }, 403],
+  ] as const) {
+    let called = false;
+    const handler = createPatchDocumentConfidentialityHandler({
+      getAuthorization: async () => auth,
+      isDocumentId,
+      setDocumentConfidentiality: async () => { called = true; return { outcome: "UPDATED", confidential: true }; },
+    });
+    const res = await handler(
+      new Request(`http://localhost/api/documents/${id}`, {
+        method: "PATCH",
+        headers: { origin: "http://localhost", "content-type": "application/json" },
+        body: JSON.stringify({ confidential: true }),
+      }),
+      { params: Promise.resolve({ id }) },
+    );
+    assert.equal(res.status, expectedStatus);
+    assert.equal(called, false);
+  }
+
+  const recorded: Array<{ documentId: string; actorId: string; confidential: boolean }> = [];
+  const handler = createPatchDocumentConfidentialityHandler({
+    getAuthorization: async () => ({ kind: "authorized", user: adminUser }),
+    isDocumentId,
+    setDocumentConfidentiality: async ({ documentId, actor, confidential }) => {
+      recorded.push({ documentId, actorId: actor.id, confidential });
+      return { outcome: "UPDATED", confidential };
+    },
+  });
+
+  // Cross-origin rejected
+  assert.equal(
+    (await handler(
+      new Request(`http://localhost/api/documents/${id}`, {
+        method: "PATCH",
+        headers: { origin: "https://attacker.example", "content-type": "application/json" },
+        body: JSON.stringify({ confidential: true }),
+      }),
+      { params: Promise.resolve({ id }) },
+    )).status,
+    403,
+  );
+
+  // Invalid content-type, invalid UUID, non-boolean, and extra fields rejected
+  assert.equal(
+    (await handler(
+      new Request(`http://localhost/api/documents/${id}`, {
+        method: "PATCH",
+        headers: { origin: "http://localhost", "content-type": "text/plain" },
+        body: JSON.stringify({ confidential: true }),
+      }),
+      { params: Promise.resolve({ id }) },
+    )).status,
+    400,
+  );
+  assert.equal(
+    (await handler(
+      new Request("http://localhost/api/documents/not-a-uuid", {
+        method: "PATCH",
+        headers: { origin: "http://localhost", "content-type": "application/json" },
+        body: JSON.stringify({ confidential: true }),
+      }),
+      { params: Promise.resolve({ id: "not-a-uuid" }) },
+    )).status,
+    400,
+  );
+  for (const invalidBody of [{ confidential: "yes" }, { confidential: true, actor_id: staffUser.id }, {}]) {
+    assert.equal(
+      (await handler(
+        new Request(`http://localhost/api/documents/${id}`, {
+          method: "PATCH",
+          headers: { origin: "http://localhost", "content-type": "application/json" },
+          body: JSON.stringify(invalidBody),
+        }),
+        { params: Promise.resolve({ id }) },
+      )).status,
+      400,
+    );
+  }
+
+  // Valid update succeeds with server-derived actor ID
+  const ok = await handler(
+    new Request(`http://localhost/api/documents/${id}`, {
+      method: "PATCH",
+      headers: { origin: "http://localhost", "content-type": "application/json" },
+      body: JSON.stringify({ confidential: true }),
+    }),
+    { params: Promise.resolve({ id }) },
+  );
+  assert.equal(ok.status, 200);
+  assert.equal(ok.headers.get("cache-control"), "private, no-store");
+  assert.deepEqual(await ok.json(), { document: { document_id: id, confidential: true } });
+  assert.deepEqual(recorded, [{ documentId: id, actorId: adminUser.id, confidential: true }]);
+});
+
+test("confidentiality migration defines column, can_read_document helpers, RLS policy, and service-role-only admin RPC", async () => {
+  const migration = await readFile(
+    new URL("../supabase/migrations/20261029000000_add_document_confidentiality_and_can_read.sql", import.meta.url),
+    "utf8",
+  );
+  assert.match(migration, /add column confidential boolean not null default false/i);
+  assert.match(migration, /create or replace function public\.can_read_document\(\s*p_user_email text,\s*p_deletion_state text,\s*p_confidential boolean\s*\)/i);
+  assert.match(migration, /create or replace function public\.can_read_document\(\s*p_actor_id uuid,\s*p_document_id uuid\s*\)/i);
+  assert.match(migration, /not coalesce\(p_confidential, false\) or actor\.role = 'ADMIN'/i);
+  assert.match(migration, /create policy "Authorized active users can read accessible documents"[\s\S]*using \(\s*public\.can_read_document\(auth\.jwt\(\) ->> 'email', deletion_state, confidential\)\s*\)/i);
+  assert.match(migration, /create or replace function public\.admin_set_document_confidential\(/i);
+  assert.match(migration, /revoke all on function public\.admin_set_document_confidential\(uuid, uuid, boolean\) from public, anon, authenticated/i);
+  assert.match(migration, /grant execute on function public\.admin_set_document_confidential\(uuid, uuid, boolean\) to service_role/i);
 });
