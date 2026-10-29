@@ -121,3 +121,52 @@ export interface PaginatedDocuments {
   page: number;
   pageSize: number;
 }
+
+export type ApprovalStepStatus = "PENDING" | "IN_PROGRESS" | "APPROVED" | "RETURNED";
+
+export interface ApprovalRouteTemplate {
+  id: string;
+  document_type: string;
+  name: string;
+  description: string | null;
+  steps: Array<{
+    step_number: number;
+    title: string;
+    role: "STAFF" | "ADMIN";
+    approver_id?: string;
+  }>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DocumentApprovalStepRecord {
+  id: string;
+  document_id: string;
+  step_number: number;
+  title: string;
+  approver_id: string | null;
+  approver_role: "STAFF" | "ADMIN";
+  status: ApprovalStepStatus;
+  notes: string | null;
+  action_at: string | null;
+  action_by: string | null;
+  created_at: string;
+}
+
+export interface ApprovalTaskRecord {
+  step_id: string;
+  document_id: string;
+  step_number: number;
+  step_title: string;
+  step_status: ApprovalStepStatus;
+  approver_id: string | null;
+  approver_role: "STAFF" | "ADMIN";
+  document_number: string | null;
+  document_type: string;
+  subject: string;
+  confidential: boolean;
+  file_name: string | null;
+  file_type: string | null;
+  document_status: DocumentStatus;
+  created_at: string;
+}

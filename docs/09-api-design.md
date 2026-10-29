@@ -242,3 +242,18 @@ diagnostics.
 ### Starred Bookmarks
 - `GET /api/documents/[id]/star`: Checks if current user has starred the specified document.
 - `POST /api/documents/[id]/star`: Toggles star bookmark for authenticated user via `toggle_document_star` RPC. Enforces `can_read_document`.
+
+## 10. Document Approval Routing and Tasks [IMPLEMENTED, MILESTONE 7]
+
+### Route Templates
+- `GET /api/approvals/routes`: Returns list of configured sequential approval route templates (`approval_routes`).
+
+### Document Approvals
+- `GET /api/documents/[id]/approvals`: Returns ordered approval steps for the specified document. Enforces `can_read_document`.
+- `POST /api/documents/[id]/approvals`: Initiates an approval route for the document (`{ customSteps?: Array<{ step_number, title, role, approver_id? }> }`). Transitions document to `UNDER_REVIEW`, creates steps (step 1 `IN_PROGRESS`, subsequent `PENDING`), and logs `APPROVAL_ROUTE_START`. Requires STAFF or ADMIN role.
+- `POST /api/documents/[id]/approvals/[stepId]`: Submits sign-off decision (`{ action: 'APPROVE' | 'RETURN', notes?: string }`).
+  - `APPROVE`: Verifies that all prior steps are completed (`PRIOR_STEP_UNAPPROVED` check), checks caller authorization, marks step `APPROVED`, advances next step to `IN_PROGRESS` (or promotes document status to `APPROVED` if final step), and logs `APPROVAL_STEP_APPROVE`.
+  - `RETURN`: Marks step `RETURNED`, records feedback notes, keeps document in `UNDER_REVIEW`, and logs `APPROVAL_STEP_RETURN`.
+
+### My Tasks
+- `GET /api/tasks`: Returns list of actionable pending review steps (`get_user_approval_tasks` RPC) for the caller matching their assigned ID or role. Enforces `can_read_document` to prevent confidential document leakage.

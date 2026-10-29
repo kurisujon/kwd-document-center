@@ -45,6 +45,9 @@ export function Navigation({ user }: { user: AuthorizedUser }) {
           <NavItem href="/reports" label="Reports" marker="R" onNavigate={close} />
           <NavItem href="/notifications" label="Notifications" marker="N" onNavigate={close} />
           {hasMinimumRole(user.role, "STAFF") && (
+            <NavItem href="/tasks" label="My tasks" marker="K" onNavigate={close} />
+          )}
+          {hasMinimumRole(user.role, "STAFF") && (
             <NavItem href="/documents/upload" label="Upload center" marker="U" onNavigate={close} />
           )}
           {user.role === "ADMIN" && (

@@ -186,6 +186,18 @@ User personal bookmarks / starred documents (`id`, `user_id`, `document_id`, `cr
 - Unique constraint: `unique (user_id, document_id)`.
 - RLS restricts access to the bookmarking user. Enforces `can_read_document` on bookmark creation and query results.
 
+### approval_routes [IMPLEMENTED, MILESTONE 7]
+Standard sequential approval workflow templates per document category (`id`, `document_type`, `name`, `description`, `steps jsonb`, `created_at`, `updated_at`).
+- Unique constraint: `unique (document_type)`. Seeded for `CONTRACTS`, `MEMORANDUM`, `BOARD RESOLUTION`, and `BAC`.
+- Read access granted to authenticated users.
+
+### document_approval_steps [IMPLEMENTED, MILESTONE 7]
+Concrete instances of sequential sign-off stages created when an approval process begins for a document (`id`, `document_id`, `step_number`, `title`, `approver_id`, `approver_role`, `status`, `notes`, `action_at`, `action_by`, `created_at`).
+- Constraints: `unique (document_id, step_number)`, `step_number >= 1`, `status in ('PENDING', 'IN_PROGRESS', 'APPROVED', 'RETURNED')`.
+- Strict sequential invariant: database RPC `process_approval_action` enforces that step $k$ cannot be approved if any previous step $< k$ is not `APPROVED` (`PRIOR_STEP_UNAPPROVED`).
+- Auto-promotion: when the final stage completes, document status transitions to `APPROVED`.
+- RLS policy enforces `public.can_read_document` on `document_id`. All transitions logged to `audit_log` (`APPROVAL_ROUTE_START`, `APPROVAL_STEP_APPROVE`, `APPROVAL_STEP_RETURN`).
+
 
 ## 4. Google Sheets Registry [OUT OF SCOPE]
 

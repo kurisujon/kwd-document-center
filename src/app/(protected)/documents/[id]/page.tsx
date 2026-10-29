@@ -22,7 +22,9 @@ import { DocumentStarButton } from "@/components/documents/document-star-button"
 import { DocumentQrCode } from "@/components/documents/document-qr-code";
 import { isDocumentStarred } from "@/lib/stars/star-service";
 import { listDocumentComments } from "@/lib/comments/comment-service";
-import type { DocumentCommentRecord } from "@/lib/documents/types";
+import { getDocumentApprovalSteps } from "@/lib/approvals/approval-service";
+import { DocumentApprovalWorkflow } from "@/components/approvals/document-approval-workflow";
+import type { DocumentApprovalStepRecord, DocumentCommentRecord } from "@/lib/documents/types";
 
 function Metadata({ label, value }: { label: string; value: string | null }) {
   return (
@@ -92,15 +94,17 @@ export default async function DocumentDetailPage({
   let docText: DocumentTextRecord | null = null;
   let comments: DocumentCommentRecord[] = [];
   let isStarred = false;
+  let approvalSteps: DocumentApprovalStepRecord[] = [];
 
   try {
-    const [linksRes, versionsRes, tagsRes, docTextRes, commentsRes, starredRes] = await Promise.all([
+    const [linksRes, versionsRes, tagsRes, docTextRes, commentsRes, starredRes, approvalStepsRes] = await Promise.all([
       listDocumentLinks(supabase, document.document_id, user),
       listDocumentVersions(supabase, document.document_id, user),
       listDocumentTags(supabase, document.document_id, user),
       getDocumentText(supabase, document.document_id, user),
       listDocumentComments(supabase, user, document.document_id),
       isDocumentStarred(supabase, user.id, document.document_id),
+      getDocumentApprovalSteps(supabase, user, document.document_id),
     ]);
     links = linksRes;
     versions = versionsRes;
@@ -108,6 +112,7 @@ export default async function DocumentDetailPage({
     docText = docTextRes;
     comments = commentsRes;
     isStarred = starredRes;
+    approvalSteps = approvalStepsRes;
   } catch {
     // Non-fatal if extended properties fail to load
   }
@@ -350,6 +355,15 @@ export default async function DocumentDetailPage({
             documentId={document.document_id}
             initialComments={comments}
             canComment={user.role === "ADMIN" || user.role === "STAFF"}
+          />
+
+          <DocumentApprovalWorkflow
+            documentId={document.document_id}
+            initialSteps={approvalSteps}
+            initialDocStatus={document.status}
+            documentType={document.document_type}
+            userRole={user.role}
+            userId={user.id}
           />
 
           {user.role === "ADMIN" && (

@@ -30,6 +30,9 @@ export const AUDIT_ACTIONS = [
   "DOCUMENT_STAR",
   "DOCUMENT_UNSTAR",
   "REPORT_EXPORT_CSV",
+  "APPROVAL_ROUTE_START",
+  "APPROVAL_STEP_APPROVE",
+  "APPROVAL_STEP_RETURN",
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
