@@ -2,7 +2,7 @@ import "server-only";
 import { Readable } from "node:stream";
 import { google, type drive_v3 } from "googleapis";
 import { classifyDriveError, DriveServiceError, isDriveFileId, type DriveDeletionService, type DriveFileMetadata, type DriveService } from "./drive-types";
-import { trashDriveFile } from "./drive-deletion";
+import { trashDriveFile, untrashDriveFile } from "./drive-deletion";
 import { createDriveOAuthClient, getDriveOAuthConfig } from "./drive-oauth";
 export { DriveServiceError, isDriveFileId } from "./drive-types";
 export type { DriveDownload, DriveFileMetadata, DriveService } from "./drive-types";
@@ -65,6 +65,10 @@ export function createDriveService(): DriveService & DriveDeletionService {
 
   async function trash(fileId: string) {
     return trashDriveFile(client().files, fileId);
+  }
+
+  async function untrash(fileId: string) {
+    return untrashDriveFile(client().files, fileId);
   }
 
   async function recoverCreatedFile(fileId: string): Promise<DriveFileMetadata | null> {
@@ -135,6 +139,7 @@ export function createDriveService(): DriveService & DriveDeletionService {
     },
     getMetadata,
     trash,
+    untrash,
     async download(fileId) {
       const metadata = await getMetadata(fileId);
       return withTransientRetry(async () => {

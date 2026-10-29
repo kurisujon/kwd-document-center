@@ -25,9 +25,11 @@ export interface DriveDownload extends DriveFileMetadata {
 }
 
 export type DriveTrashResult = { disposition: "TRASHED" } | { disposition: "ABSENT" };
+export type DriveUntrashResult = { disposition: "UNTRASHED" } | { disposition: "ABSENT" };
 
 export interface DriveDeletionService {
   trash(fileId: string): Promise<DriveTrashResult>;
+  untrash?(fileId: string): Promise<DriveUntrashResult>;
 }
 
 export interface DriveService {

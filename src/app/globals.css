@@ -134,6 +134,8 @@ tbody tr:hover { background: #f8fbff; }
 .file-panel h2 { margin: 0; font-size: 1.15rem; }
 .file-panel > p:not(.eyebrow) { color: var(--color-text-secondary); }
 .document-actions { display: grid; gap: .65rem; margin-top: 1.25rem; }
+.confidentiality-control { margin-top: 1.4rem; padding-top: 1.25rem; border-top: 1px solid var(--color-border); }
+.confidentiality-control > p:not(.eyebrow) { margin: .35rem 0 0; color: var(--color-text-secondary); }
 .file-unavailable { margin: 0; padding: .8rem; color: var(--color-error); background: #fef2f2; }
 .placeholder, .registry-error, .users-state { max-width: 44rem; padding: 1.5rem; }
 .placeholder h1, .registry-error h1 { margin: 0; font-size: 1.35rem; }
@@ -289,4 +291,41 @@ tbody tr:hover { background: #f8fbff; }
 .document-delete-overlay .confirmation-actions {
   justify-content: flex-end;
   flex-wrap: wrap;
+}
+
+/* Milestone 1: Document inline preview, activity panel, and admin trash actions */
+.document-preview-section, .document-activity-section {
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.document-preview-frame {
+  width: 100%;
+  height: 36rem;
+  margin-top: 0.75rem;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-muted);
+}
+
+.document-preview-image {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin-top: 0.75rem;
+  border: 1px solid var(--color-border);
+}
+
+.trash-actions-wrap {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.purge-inline-form {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-error);
+  background: var(--color-surface-muted);
 }

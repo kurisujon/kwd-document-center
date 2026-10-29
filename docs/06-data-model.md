@@ -49,18 +49,19 @@ Each upload attempt has at most one persisted Drive file ID and at most one Driv
 - **Retry / Resume:** A resume of a `FAILED` attempt assigns a fresh `operation_token`, invalidating any stale in-flight requests from prior executions.
 - **Crash Recovery:** If a process crashes in `PENDING_UPLOAD` before persisting a Drive ID, the lease expires (`reservation_expires_at <= now()`), allowing a subsequent retry to safely reclaim the reservation with a new token without blocking permanently.
 
-### audit_log [PENDING CONFIRMATION]
-Only implement if KWD confirms the need.
+### audit_log [IMPLEMENTED, MILESTONE 1]
+Append-only audit trail (`20261029010000_create_audit_log.sql`). Direct table access is revoked from all roles including `service_role`, and a `BEFORE UPDATE OR DELETE` trigger prevents mutations. All writes occur inside `SECURITY DEFINER` RPCs; client IP addresses are not stored.
 
 | Column | Type | Constraints | Description |
 |---|---|---|---|
-| `id` | UUID | PK, auto-generated | Log entry identifier |
-| `user_id` | UUID | FK → users.id | Who performed the action |
-| `action` | TEXT | NOT NULL | Action type (e.g., DOCUMENT_UPLOAD, USER_CREATE) |
-| `target_type` | TEXT | | Entity type (e.g., DOCUMENT, USER) |
-| `target_id` | TEXT | | Entity identifier |
-| `details` | JSONB | nullable | Additional context |
-| `created_at` | TIMESTAMPTZ | default now() | When the action occurred |
+| `id` | UUID | PK, `default gen_random_uuid()` | Log entry identifier |
+| `actor_id` | UUID | `NOT NULL`, FK → `users.id` | User who performed the action |
+| `actor_email` | TEXT | `NOT NULL` | Canonical email of the actor at the time of the action |
+| `action` | TEXT | `NOT NULL`, checked against allowed actions | `DOCUMENT_UPLOAD`, `DOCUMENT_OPEN`, `DOCUMENT_DOWNLOAD`, `DOCUMENT_CONFIDENTIALITY_CHANGE`, `DOCUMENT_DELETE`, `DOCUMENT_RESTORE`, `DOCUMENT_PURGE`, `USER_CREATE`, `USER_UPDATE`, `FOLDER_CREATE` |
+| `entity_type` | TEXT | `NOT NULL`, `DOCUMENT`/`USER`/`FOLDER` | Entity category |
+| `entity_id` | TEXT | `NOT NULL` | Entity identifier |
+| `metadata` | JSONB | `NOT NULL DEFAULT '{}'::jsonb` | Safe structured context (never raw provider diagnostics or IP addresses) |
+| `created_at` | TIMESTAMPTZ | `NOT NULL DEFAULT now()` | Timestamp of the event |
 
 ### document_folders [CONFIRMED, PHASE 7C]
 
@@ -104,13 +105,16 @@ Supabase/PostgreSQL is the application's document metadata registry for Phase 2.
 | `filing_year` | INTEGER | Nullable; **CONFIRMED Phase 3 Admin** | Logical Admin filing year |
 | `filing_subcategory` | TEXT | Nullable; **CONFIRMED Phase 3 Admin** | BAC or Attendance subcategory |
 | `status` | TEXT | `ACTIVE`/`ARCHIVED`; **PROPOSED** | Registry record status |
+| `confidential` | BOOLEAN | `NOT NULL DEFAULT false`; **Milestone 1** | Marks confidential records visible only to ACTIVE ADMIN users via `public.can_read_document` |
 | `deletion_state` | TEXT | `ACTIVE`/`DELETE_PENDING`/`DELETE_FAILED`/`DELETED`; Phase 7A | Separate soft-deletion lifecycle; not archival status |
 | `delete_started_at` | TIMESTAMPTZ | Nullable | Start time for the current or most recent deletion attempt |
 | `delete_operation_token` | UUID | Required only while pending | Server-generated ownership token for deletion finalization/failure updates |
 | `delete_lease_expires_at` | TIMESTAMPTZ | Required only while pending | Short claim lease; expiry is evaluated transactionally, not by a time-dependent CHECK |
 | `delete_error_category` | TEXT | Nullable bounded category | Safe retry/failure classification without provider diagnostics |
 | `deleted_at` / `deleted_by` | TIMESTAMPTZ / UUID | Required when deleted | Server-controlled deletion audit information |
-| `drive_trashed_at` | TIMESTAMPTZ | Nullable | Drive Trash confirmation; nullable when the stored file was already absent |
+| `drive_trashed_at` | TIMESTAMPTZ | Nullable | Drive Trash confirmation (populated on Admin Purge per ADR-006) |
+| `purged_at` / `purged_by` | TIMESTAMPTZ / UUID | Nullable; **Milestone 1 (ADR-006)** | Server-controlled Admin Purge timestamp and actor |
+| `purge_reason` | TEXT | Nullable (1–500 chars when purged); **Milestone 1 (ADR-006)** | Required administrator reason recorded on Purge |
 | `created_by` | TEXT | Nullable; **PENDING CONFIRMATION** for the final identifier convention | User or email associated with record creation; Phase 2 retains the already documented uploader-email representation |
 | `created_at` | TIMESTAMPTZ | **PROPOSED** | Record creation timestamp |
 | `updated_at` | TIMESTAMPTZ | **PROPOSED** | Last modification timestamp |

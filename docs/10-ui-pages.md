@@ -109,6 +109,8 @@ Users              (ADMIN only)
 | `/documents/[id]` | Document Detail | Authenticated |
 | `/documents/upload` | Upload Document | STAFF, ADMIN |
 | `/admin/users` | User Management | ADMIN |
+| `/admin/trash` | Trash (Restore & Purge) | ADMIN |
+| `/admin/audit-log` | Append-Only Audit Log | ADMIN |
 
 ## 5. Post-Login Redirect [PROPOSED]
 - After login, redirect to `/documents` (NOT a dashboard).

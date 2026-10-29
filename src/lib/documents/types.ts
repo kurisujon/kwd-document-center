@@ -25,6 +25,7 @@ export interface DocumentRecord {
   filing_subcategory: string | null;
   status: "ACTIVE" | "ARCHIVED";
   deletion_state?: DocumentDeletionState;
+  confidential?: boolean;
   created_by: string | null;
   created_at: string;
   updated_at: string;

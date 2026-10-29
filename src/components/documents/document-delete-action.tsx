@@ -134,7 +134,7 @@ export function DocumentDeleteAction({ id, number, subject }: { id: string; numb
     {open && createPortal(
       <div ref={overlayRef} className="document-delete-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) event.preventDefault(); }}>
         <section ref={dialogRef} className="confirmation-panel" role="alertdialog" aria-modal="true" aria-labelledby={`delete-title-${id}`} aria-describedby={`delete-description-${id}`} aria-busy={pending} tabIndex={-1} onKeyDown={handleDialogKeyDown}>
-          <div><h2 id={`delete-title-${id}`}>Delete document?</h2><div id={`delete-description-${id}`}><p>Document number: <strong>{number ?? "—"}</strong></p><p>Subject: <strong>{subject}</strong></p><p>The file will be moved to Google Drive Trash and removed from the normal Document Center list.</p></div>{error && <p className="form-error" role="alert">{error}</p>}</div>
+          <div><h2 id={`delete-title-${id}`}>Delete document?</h2><div id={`delete-description-${id}`}><p>Document number: <strong>{number ?? "—"}</strong></p><p>Subject: <strong>{subject}</strong></p><p>The record will be moved to the Document Center Trash and hidden from the registry. An administrator can restore it or purge it later.</p></div>{error && <p className="form-error" role="alert">{error}</p>}</div>
           <div className="confirmation-actions"><button ref={cancelRef} className="button button-secondary" type="button" disabled={pending} onClick={() => setOpen(false)}>Cancel</button><button className="button button-danger" type="button" disabled={pending} onClick={() => void confirm()}>{pending ? "Deleting…" : "Delete document"}</button></div>
         </section>
       </div>,

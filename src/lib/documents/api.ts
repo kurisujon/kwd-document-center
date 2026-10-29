@@ -1,4 +1,5 @@
-import type { AuthorizationResult } from "../auth/types";
+import { canReadDocument } from "../auth/permissions";
+import type { AuthorizationResult, AuthorizedUser } from "../auth/types";
 import type { NextRequest } from "next/server";
 import type { QueryValidationResult } from "./query";
 import type { DocumentListQuery, DocumentRecord, PaginatedDocuments } from "./types";
@@ -21,9 +22,9 @@ function authorizationError(kind: AuthorizationFailure) {
 export interface DocumentsApiDependencies {
   getAuthorization: () => Promise<AuthorizationResult>;
   parseListQuery: (params: Record<string, string | string[] | undefined>) => QueryValidationResult;
-  listDocuments: (query: DocumentListQuery) => Promise<PaginatedDocuments>;
+  listDocuments: (query: DocumentListQuery, viewer?: AuthorizedUser) => Promise<PaginatedDocuments>;
   isDocumentId: (value: string) => boolean;
-  getDocumentById: (documentId: string) => Promise<DocumentRecord | null>;
+  getDocumentById: (documentId: string, viewer?: AuthorizedUser) => Promise<DocumentRecord | null>;
 }
 
 export function createListDocumentsHandler(dependencies: Pick<DocumentsApiDependencies, "getAuthorization" | "parseListQuery" | "listDocuments">) {
@@ -37,7 +38,10 @@ export function createListDocumentsHandler(dependencies: Pick<DocumentsApiDepend
     }
 
     try {
-      return json(await dependencies.listDocuments(validation.data));
+      const result = await dependencies.listDocuments(validation.data, authorization.user);
+      const visible = result.documents.filter((document) => canReadDocument(authorization.user, document));
+      const removed = result.documents.length - visible.length;
+      return json({ ...result, documents: visible, total: Math.max(0, result.total - removed) });
     } catch {
       logOperationalFailure({ operation: "documents.list", outcome: "failure", category: "REGISTRY_READ_FAILED", status: 500 });
       return json({ error: { code: "REGISTRY_ERROR", message: "Documents are temporarily unavailable. Please try again." } }, 500);
@@ -56,8 +60,10 @@ export function createGetDocumentHandler(dependencies: Pick<DocumentsApiDependen
     }
 
     try {
-      const document = await dependencies.getDocumentById(id);
-      if (!document) return json({ error: { code: "NOT_FOUND", message: "Document not found." } }, 404);
+      const document = await dependencies.getDocumentById(id, authorization.user);
+      if (!document || !canReadDocument(authorization.user, document)) {
+        return json({ error: { code: "NOT_FOUND", message: "Document not found." } }, 404);
+      }
       return json({ document });
     } catch {
       logOperationalFailure({ operation: "documents.detail", outcome: "failure", category: "REGISTRY_READ_FAILED", status: 500, resourceId: id });

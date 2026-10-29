@@ -59,10 +59,15 @@ Responsibilities:
 |---|---|---|---|---|
 | List/Search documents | GET /api/documents | Search registry with filters | Yes | VIEWER |
 | Get document detail | GET /api/documents/:id | Get single document metadata | Yes | VIEWER |
+| Update document confidentiality | PATCH /api/documents/:id | Toggle `confidential` flag on an active document | Yes | ADMIN |
 | Upload document | POST /api/documents | Upload file + create registry entry | Yes | STAFF |
-| Open file | GET /api/documents/:id/open | Validate Drive availability and redirect | Yes | VIEWER |
-| Download file | GET /api/documents/:id/download | Stream through the server | Yes | VIEWER |
-| Delete document | DELETE /api/documents/:id | Move the stored Drive file to Trash and soft-delete its registry record | Yes | ADMIN |
+| Open file | GET /api/documents/:id/open | Validate Drive availability, record `DOCUMENT_OPEN` audit entry, and redirect | Yes | VIEWER |
+| Download file | GET /api/documents/:id/download | Stream through the server (records `DOCUMENT_DOWNLOAD` unless `?inline=1` preview) | Yes | VIEWER |
+| Soft-delete document | DELETE /api/documents/:id | Mark `deletion_state = 'DELETED'` in registry without touching Google Drive (ADR-006) | Yes | ADMIN |
+| Restore document | POST /api/documents/:id/restore | Restore soft-deleted record from Trash to `ACTIVE` (ADR-006) | Yes | ADMIN |
+| Purge document | POST /api/documents/:id/purge | Move Drive file to Google Drive Trash and mark record purged with a required `reason` (ADR-006) | Yes | ADMIN |
+| List Trash | GET /api/admin/trash | List soft-deleted documents awaiting restore or purge | Yes | ADMIN |
+| List Audit Log | GET /api/admin/audit-log | Query append-only audit log with filters (`actor`, `action`, `entityType`, `entityId`, `dateFrom`, `dateTo`) | Yes | ADMIN |
 
 ### Users (Admin Only) [CONFIRMED PHASE 4]
 | Operation | Method | Purpose | Auth Required | Min Role |

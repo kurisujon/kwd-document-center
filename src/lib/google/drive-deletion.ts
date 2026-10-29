@@ -1,5 +1,5 @@
 import type { drive_v3 } from "googleapis";
-import { classifyDriveError, DriveServiceError, isDriveFileId, type DriveTrashResult } from "./drive-types";
+import { classifyDriveError, DriveServiceError, isDriveFileId, type DriveTrashResult, type DriveUntrashResult } from "./drive-types";
 
 type DriveFiles = Pick<drive_v3.Resource$Files, "get" | "update">;
 
@@ -39,6 +39,25 @@ export async function trashDriveFile(files: DriveFiles, fileId: string): Promise
         if (classifyDriveError(verificationError).kind === "NOT_FOUND") return { disposition: "ABSENT" };
       }
     }
+    throw classified;
+  }
+}
+
+/** Server-side Drive untrash operation for restoring legacy soft-deleted records that were trashed in Drive before ADR-006. */
+export async function untrashDriveFile(files: DriveFiles, fileId: string): Promise<DriveUntrashResult> {
+  if (!isDriveFileId(fileId)) throw new DriveServiceError("INVALID_ID");
+  try {
+    const response = await withTransientRetry(async () => files.update({
+      fileId,
+      requestBody: { trashed: false },
+      fields: "id,trashed",
+      supportsAllDrives: true,
+    }));
+    if (response.data.id !== fileId || response.data.trashed !== false) throw new DriveServiceError("PROVIDER");
+    return { disposition: "UNTRASHED" };
+  } catch (error) {
+    const classified = classifyDriveError(error);
+    if (classified.kind === "NOT_FOUND") return { disposition: "ABSENT" };
     throw classified;
   }
 }
