@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createAuditRepository, type AuditLogEntry } from "@/lib/audit/audit-log";
 import { canReadDocument } from "@/lib/auth/permissions";
 import { requireAuthorizedUser } from "@/lib/auth/server";
+import { getDocumentTypeConfig } from "@/lib/documents/document-types-config";
 import { isInlinePreviewableMimeType } from "@/lib/documents/file-api";
 import { getDocumentById } from "@/lib/documents/repository";
 import { isDocumentId } from "@/lib/documents/query";
@@ -129,6 +130,20 @@ export default async function DocumentDetailPage({
             <Metadata label="File name" value={document.file_name} />
             <Metadata label="Upload date" value={document.created_at} />
             <Metadata label="Uploaded by" value={document.created_by} />
+            {(() => {
+              const typeConfig = getDocumentTypeConfig(document.document_type);
+              const customMeta = (document.custom_metadata ?? {}) as Record<string, unknown>;
+              return typeConfig?.fields.map((field) => {
+                const rawVal = customMeta[field.key];
+                if (rawVal === undefined || rawVal === null || rawVal === "") return null;
+                let displayVal = String(rawVal);
+                if (field.type === "select" && field.options) {
+                  const opt = field.options.find((o) => o.value === rawVal);
+                  if (opt) displayVal = opt.label;
+                }
+                return <Metadata key={field.key} label={field.label} value={displayVal} />;
+              });
+            })()}
           </dl>
 
           {document.drive_file_id && (

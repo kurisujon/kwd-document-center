@@ -106,6 +106,8 @@ Supabase/PostgreSQL is the application's document metadata registry for Phase 2.
 | `filing_subcategory` | TEXT | Nullable; **CONFIRMED Phase 3 Admin** | BAC or Attendance subcategory |
 | `status` | TEXT | `ACTIVE`/`ARCHIVED`; **PROPOSED** | Registry record status |
 | `confidential` | BOOLEAN | `NOT NULL DEFAULT false`; **Milestone 1** | Marks confidential records visible only to ACTIVE ADMIN users via `public.can_read_document` |
+| `custom_metadata` | JSONB | `NOT NULL DEFAULT '{}'::jsonb`; **Milestone 2 (ADR-007)** | Type-specific structured fields defined in reviewed code configuration (`document-types-config.ts`), constrained to JSON objects. Indexed with GIN (`documents_custom_metadata_gin_idx`) |
+| `file_sha256` | TEXT | Nullable; **Milestone 2 (ADR-007)** | Server-computed SHA-256 hash (64 hex characters) of uploaded file bytes for duplicate detection. Indexed with `documents_file_sha256_idx` |
 | `deletion_state` | TEXT | `ACTIVE`/`DELETE_PENDING`/`DELETE_FAILED`/`DELETED`; Phase 7A | Separate soft-deletion lifecycle; not archival status |
 | `delete_started_at` | TIMESTAMPTZ | Nullable | Start time for the current or most recent deletion attempt |
 | `delete_operation_token` | UUID | Required only while pending | Server-generated ownership token for deletion finalization/failure updates |

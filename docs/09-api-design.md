@@ -57,7 +57,7 @@ Responsibilities:
 ### Documents
 | Operation | Method | Purpose | Auth Required | Min Role |
 |---|---|---|---|---|
-| List/Search documents | GET /api/documents | Search registry with filters | Yes | VIEWER |
+| List/Search documents | GET /api/documents | Search registry with filters (standard query + `meta_*` type-specific custom filters) | Yes | VIEWER |
 | Get document detail | GET /api/documents/:id | Get single document metadata | Yes | VIEWER |
 | Update document confidentiality | PATCH /api/documents/:id | Toggle `confidential` flag on an active document | Yes | ADMIN |
 | Upload document | POST /api/documents | Upload file + create registry entry | Yes | STAFF |
@@ -108,28 +108,32 @@ permission mutation.
 
 The Drive setup callback is separate from `/auth/callback`, which exchanges the Supabase Google login code. The refresh token is displayed only in the one-time administrator setup response for manual Vercel configuration.
 
-### Upload Flow (Detailed) [PHASE 3]
+### Upload Flow (Detailed) [PHASE 3 & MILESTONE 2]
 ```
 POST /api/documents
-  Body: { file, metadata, idempotency_key }
+  Body: { file, metadata, idempotency_key, duplicate_override, duplicate_override_reason }
 
   1. Validate session → 401 if unauthenticated; 403 if unauthorized
   2. Validate role >= STAFF → 403 if insufficient
-  3. Validate metadata (Zod) → 400 if invalid
-  4. Validate file (type, size) → 400 if invalid
+  3. Validate metadata (Zod, including type-specific custom fields from reviewed code config) → 400 if invalid
+  4. Validate file (type, size) and compute SHA-256 hash → 400 if invalid
   5. Check idempotency_key in upload_attempts
      - If COMPLETE: return existing document
-     - If PENDING_REGISTRY: skip to step 8
-  6. Create or find upload_attempts record (status: PENDING_UPLOAD)
+     - If PENDING_REGISTRY: skip to step 9
+  6. Check duplicates (exact file_sha256 or duplicate document_number within document_type)
+     - Queries check can_read_document to prevent leaking confidential document metadata
+     - If duplicate found and duplicate_override is false/missing: return 409 DUPLICATE_DOCUMENT
+     - If duplicate_override is true: require non-empty duplicate_override_reason (audited)
+  7. Create or find upload_attempts record (status: PENDING_UPLOAD)
      - Atomically claim Drive ID reservation lease (sets operation_token and reservation_expires_at)
      - Only the reservation winner calls generateFileId()
      - Persist the Drive file ID and transition attempt to UPLOADING
-  7. Resumable upload file to Drive using that exact persisted file ID
+  8. Resumable upload file to Drive using that exact persisted file ID
      - On failure: conditionally mark attempt as FAILED using current operation_token, return 500/503
-  8. Update upload_attempts (status: PENDING_REGISTRY with matching operation_token; persisted drive_file_id remains unchanged)
-  9. Transactionally insert the Supabase document and link the attempt
-     - On failure: keep status as PENDING_REGISTRY and retry with the same key
-  10. Return 201 with document data
+  9. Update upload_attempts (status: PENDING_REGISTRY with matching operation_token; persisted drive_file_id remains unchanged)
+  10. Transactionally insert the Supabase document (with custom_metadata, file_sha256, duplicate_override_reason) and link the attempt
+      - On failure: keep status as PENDING_REGISTRY and retry with the same key
+  11. Return 201 with document data
 ```
 
 ### Multi-file upload [CONFIRMED, PHASE 7B]
@@ -162,6 +166,7 @@ Standardized JSON error responses:
 
 Error codes:
 - VALIDATION_ERROR — invalid input
+- DUPLICATE_DOCUMENT — file hash or document number already registered (reasoned override allowed)
 - UNAUTHORIZED — not logged in
 - FORBIDDEN — insufficient role
 - NOT_FOUND — document/user not found

@@ -9,6 +9,10 @@ export interface AdminDocumentMetadata {
   persons_involved: string;
   filing_year: number | null;
   filing_subcategory: string;
+  custom_metadata?: Record<string, unknown>;
+  file_sha256?: string;
+  duplicate_override?: boolean;
+  duplicate_override_reason?: string;
 }
 
 export interface ValidatedAdminUpload {
@@ -20,6 +24,9 @@ export interface ValidatedAdminUpload {
     size: number;
     bytes: Uint8Array;
   };
+  fileSha256?: string;
+  duplicateOverride?: boolean;
+  duplicateOverrideReason?: string;
 }
 
 export interface FolderUploadRequestMetadata {

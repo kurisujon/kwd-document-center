@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { requireAuthorizedUser } from "@/lib/auth/server";
+import { getDocumentTypeConfig } from "@/lib/documents/document-types-config";
 import { parseDocumentListQuery } from "@/lib/documents/query";
 import { listDocuments, listDocumentTypes } from "@/lib/documents/repository";
 import type { DocumentListQuery, DocumentSortField, PaginatedDocuments } from "@/lib/documents/types";
@@ -18,6 +19,11 @@ function queryHref(query: DocumentListQuery, updates: Partial<Record<keyof Docum
   if (values.pageSize !== 25) params.set("pageSize", String(values.pageSize));
   if (values.sortBy !== "created_at") params.set("sortBy", String(values.sortBy));
   if (values.sortOrder !== "desc") params.set("sortOrder", String(values.sortOrder));
+  if (values.customFilters) {
+    for (const [k, v] of Object.entries(values.customFilters)) {
+      if (v) params.set(`meta_${k}`, String(v));
+    }
+  }
   const search = params.toString();
   return search ? `/documents?${search}` : "/documents";
 }
@@ -48,7 +54,11 @@ export default async function DocumentsPage({ searchParams }: { searchParams: Pr
   if (loadFailed || !result || !documentTypes) return <section className="registry-error" role="alert"><h1>Documents unavailable</h1><p>We could not load the document registry. Please try again.</p><Link className="button button-secondary" href="/documents">Retry</Link></section>;
 
   const pageCount = Math.max(1, Math.ceil(result.total / result.pageSize));
-  const activeFilterCount = [query.q, query.type, query.dateFrom, query.dateTo].filter(Boolean).length;
+  const customFilterCount = Object.keys(query.customFilters ?? {}).length;
+  const activeFilterCount = [query.q, query.type, query.dateFrom, query.dateTo].filter(Boolean).length + customFilterCount;
+  const selectedTypeConfig = query.type ? getDocumentTypeConfig(query.type) : undefined;
+  const filterableFields = selectedTypeConfig?.fields.filter((f) => f.filterable) ?? [];
+
   return <>
       <header className="page-heading"><div><p className="eyebrow">Document workspace</p><h1>Find the document you need.</h1><p>Search the official KWD registry, narrow the results, and open the source file in Drive.</p></div><DocumentPageActions role={user.role} /></header>
       <section className="workspace-overview" aria-label="Document registry overview"><div><span className="overview-label">Registry</span><strong>{result.total.toLocaleString()}</strong><span>matching {result.total === 1 ? "document" : "documents"}</span></div><div><span className="overview-label">Current view</span><strong>{activeFilterCount || "All"}</strong><span>{activeFilterCount ? `${activeFilterCount} active ${activeFilterCount === 1 ? "filter" : "filters"}` : "No filters applied"}</span></div><div className="overview-guidance"><span className="overview-label">Quick guidance</span><strong>Search first</strong><span>Use a number, subject, person, or filename.</span></div></section>
@@ -58,6 +68,28 @@ export default async function DocumentsPage({ searchParams }: { searchParams: Pr
         <label className="field">Document type<select name="type" defaultValue={query.type ?? ""}><option value="">All document types</option>{documentTypes.map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
         <label className="field">From date<input name="dateFrom" type="date" defaultValue={query.dateFrom} /></label>
         <label className="field">To date<input name="dateTo" type="date" defaultValue={query.dateTo} /></label>
+        {filterableFields.map((field) => (
+          <label key={field.key} className="field">
+            {field.label}
+            {field.type === "select" && field.options ? (
+              <select name={`meta_${field.key}`} defaultValue={query.customFilters?.[field.key] ?? ""}>
+                <option value="">All</option>
+                {field.options.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                name={`meta_${field.key}`}
+                type={field.type === "date" ? "date" : field.type === "number" ? "number" : "search"}
+                defaultValue={query.customFilters?.[field.key] ?? ""}
+                placeholder={field.placeholder ?? ""}
+              />
+            )}
+          </label>
+        ))}
         <input name="sortBy" type="hidden" value={query.sortBy} />
         <input name="sortOrder" type="hidden" value={query.sortOrder} />
         <button className="button button-secondary filter-submit" type="submit">Apply filters</button>

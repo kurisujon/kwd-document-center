@@ -3,7 +3,7 @@ import { canReadDocument } from "../auth/permissions";
 import type { Role } from "../auth/types";
 import type { DocumentListQuery, DocumentRecord, PaginatedDocuments } from "./types";
 
-export const documentColumns = "document_id, document_type, document_number, document_date, subject, persons_involved, drive_file_id, drive_url, file_name, file_type, filing_year, filing_subcategory, status, deletion_state, confidential, created_by, created_at, updated_at";
+export const documentColumns = "document_id, document_type, document_number, document_date, subject, persons_involved, drive_file_id, drive_url, file_name, file_type, filing_year, filing_subcategory, status, deletion_state, confidential, custom_metadata, file_sha256, created_by, created_at, updated_at";
 
 type DocumentReader = { role: Role; status?: "ACTIVE" | "INACTIVE" };
 
@@ -24,6 +24,15 @@ export async function listDocuments(supabase: SupabaseClient, query: DocumentLis
   if (query.type) request = request.eq("document_type", query.type);
   if (query.dateFrom) request = request.gte("document_date", query.dateFrom);
   if (query.dateTo) request = request.lte("document_date", query.dateTo);
+
+  if (query.customFilters) {
+    for (const [key, val] of Object.entries(query.customFilters)) {
+      if (val) {
+        const search = escapeLikeSearch(val);
+        request = request.ilike(`custom_metadata->>${key}`, `%${search}%`);
+      }
+    }
+  }
 
   const start = (query.page - 1) * query.pageSize;
   const { data, error, count } = await request

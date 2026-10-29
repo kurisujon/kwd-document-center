@@ -1,5 +1,7 @@
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { adminSubcategories, categoryUsesYear, isAdminCategory } from "./admin-categories";
+import { getDocumentTypeConfig, validateCustomMetadata } from "./document-types-config";
 import { adminUploadFormats, type AdminUploadExtension } from "./upload-formats";
 import { validateCanonicalSourceRelativePath } from "./folder-upload-validation";
 import { defaultAdminUploadMaxBytes } from "./upload-limits";
@@ -161,6 +163,32 @@ function validateMetadata(formData: FormData): AdminDocumentMetadata {
     throw new UploadValidationError("filing_subcategory", "This category does not use a subcategory.");
   }
 
+  // Parse type-specific custom metadata
+  let customRaw: Record<string, unknown> = {};
+  const customJson = formData.get("custom_metadata");
+  if (typeof customJson === "string" && customJson.trim()) {
+    try {
+      customRaw = JSON.parse(customJson);
+    } catch {
+      throw new UploadValidationError("custom_metadata", "Custom metadata must be valid JSON.");
+    }
+  } else {
+    const typeDef = getDocumentTypeConfig(documentType);
+    if (typeDef) {
+      for (const field of typeDef.fields) {
+        const val = formData.get(field.key);
+        if (typeof val === "string" && val.trim()) {
+          customRaw[field.key] = val.trim();
+        }
+      }
+    }
+  }
+
+  const validatedCustom = validateCustomMetadata(documentType, customRaw);
+  if (!validatedCustom.success) {
+    throw new UploadValidationError(validatedCustom.field || "custom_metadata", validatedCustom.message);
+  }
+
   return {
     document_type: documentType,
     document_number: documentNumber,
@@ -169,6 +197,7 @@ function validateMetadata(formData: FormData): AdminDocumentMetadata {
     persons_involved: personsInvolved,
     filing_year: filingYear,
     filing_subcategory: filingSubcategory,
+    custom_metadata: validatedCustom.data,
   };
 }
 
@@ -178,10 +207,28 @@ export async function validateAdminUploadForm(formData: FormData): Promise<Valid
   const file = formData.get("file");
   if (!(file instanceof File)) throw new UploadValidationError("file", "Select a file to upload.");
 
+  const validatedFile = await validateAdminUploadFile(file);
+  const fileSha256 = createHash("sha256").update(validatedFile.bytes).digest("hex");
+
+  const duplicateOverrideRaw = text(formData, "duplicate_override");
+  const duplicateOverride = duplicateOverrideRaw === "true" || duplicateOverrideRaw === "1";
+  const duplicateOverrideReason = text(formData, "duplicate_override_reason");
+  if (duplicateOverride && !duplicateOverrideReason) {
+    throw new UploadValidationError("duplicate_override_reason", "An override reason is required to submit a duplicate document.");
+  }
+
+  const metadata = validateMetadata(formData);
+  metadata.file_sha256 = fileSha256;
+  metadata.duplicate_override = duplicateOverride;
+  if (duplicateOverrideReason) metadata.duplicate_override_reason = duplicateOverrideReason;
+
   return {
     idempotencyKey: idempotency.data,
-    metadata: validateMetadata(formData),
-    file: await validateAdminUploadFile(file),
+    metadata,
+    file: validatedFile,
+    fileSha256,
+    duplicateOverride,
+    duplicateOverrideReason: duplicateOverrideReason || undefined,
   };
 }
 

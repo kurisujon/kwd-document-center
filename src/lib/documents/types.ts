@@ -26,6 +26,8 @@ export interface DocumentRecord {
   status: "ACTIVE" | "ARCHIVED";
   deletion_state?: DocumentDeletionState;
   confidential?: boolean;
+  custom_metadata?: Record<string, unknown>;
+  file_sha256?: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -40,6 +42,7 @@ export interface DocumentListQuery {
   pageSize: number;
   sortBy: DocumentSortField;
   sortOrder: SortOrder;
+  customFilters?: Record<string, string>;
 }
 
 export interface PaginatedDocuments {

@@ -71,6 +71,17 @@ export function parseDocumentListQuery(params: Record<string, string | string[] 
     return { success: false, field: "dateTo", message: "dateTo must be on or after dateFrom." };
   }
 
+  const customFilters: Record<string, string> = {};
+  for (const [key, rawVal] of Object.entries(params)) {
+    if (key.startsWith("meta_")) {
+      const fieldKey = key.slice(5);
+      const val = singleValue(rawVal)?.trim();
+      if (val && /^[a-zA-Z0-9_]{1,50}$/.test(fieldKey) && val.length <= 200) {
+        customFilters[fieldKey] = val;
+      }
+    }
+  }
+
   return {
     success: true,
     data: {
@@ -78,6 +89,7 @@ export function parseDocumentListQuery(params: Record<string, string | string[] 
       ...(type ? { type } : {}),
       ...(dateFrom ? { dateFrom } : {}),
       ...(dateTo ? { dateTo } : {}),
+      ...(Object.keys(customFilters).length > 0 ? { customFilters } : {}),
       page: pageValue,
       pageSize: pageSizeValue,
       sortBy: sortBy as DocumentSortField,
