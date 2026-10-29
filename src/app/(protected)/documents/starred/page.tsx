@@ -3,6 +3,7 @@ import { requireAuthorizedUser } from "@/lib/auth/server";
 import { listStarredDocuments } from "@/lib/stars/star-service";
 import { createClient } from "@/lib/supabase/server";
 import { DocumentStarButton } from "@/components/documents/document-star-button";
+import type { PaginatedDocuments } from "@/lib/documents/types";
 
 export default async function StarredDocumentsPage({
   searchParams,
@@ -14,7 +15,12 @@ export default async function StarredDocumentsPage({
   const sp = await searchParams;
 
   const page = typeof sp.page === "string" ? parseInt(sp.page, 10) || 1 : 1;
-  const result = await listStarredDocuments(supabase, user, { page, pageSize: 25 });
+  let result: PaginatedDocuments = { documents: [], total: 0, page, pageSize: 25 };
+  try {
+    result = await listStarredDocuments(supabase, user, { page, pageSize: 25 });
+  } catch (err) {
+    console.error("Starred load error:", err);
+  }
 
   return (
     <section className="starred-container" aria-label="Starred documents">

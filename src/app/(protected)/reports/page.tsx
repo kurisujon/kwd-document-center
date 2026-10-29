@@ -32,7 +32,13 @@ export default async function ReportsPage({
   };
 
   const allTypes = getAllDocumentTypes();
-  const documents = await fetchReportDocuments(supabase, filters, user);
+  let documents: Awaited<ReturnType<typeof fetchReportDocuments>> = [];
+  try {
+    documents = await fetchReportDocuments(supabase, filters, user);
+  } catch (err) {
+    console.error("Reports load error:", err);
+    documents = [];
+  }
 
   // Build export query string
   const exportParams = new URLSearchParams();

@@ -7,7 +7,20 @@ export default async function DashboardPage() {
   const user = await requireAuthorizedUser();
   const supabase = await createClient();
 
-  const metrics = await getDashboardMetrics(supabase, user);
+  let metrics;
+  try {
+    metrics = await getDashboardMetrics(supabase, user);
+  } catch (err) {
+    console.error("Dashboard error:", err);
+    metrics = {
+      totalDocuments: 0,
+      expiringSoonCount: 0,
+      pendingRetentionCount: 0,
+      typeCounts: {},
+      recentUploads: [],
+      expiringDocuments: [],
+    };
+  }
 
   return (
     <section className="dashboard-container" aria-label="Records dashboard">

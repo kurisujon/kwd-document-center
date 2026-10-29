@@ -19,15 +19,132 @@ export function isNavigationItemActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
+export type NavIconName =
+  | "dashboard"
+  | "documents"
+  | "starred"
+  | "reports"
+  | "notifications"
+  | "tasks"
+  | "upload"
+  | "users"
+  | "folders"
+  | "trash"
+  | "audit";
+
+function NavIcon({ name }: { name: NavIconName }) {
+  const common = {
+    width: "16",
+    height: "16",
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: "2",
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    "aria-hidden": true,
+  };
+
+  switch (name) {
+    case "dashboard":
+      return (
+        <svg {...common}>
+          <rect width="7" height="9" x="3" y="3" rx="1" />
+          <rect width="7" height="5" x="14" y="3" rx="1" />
+          <rect width="7" height="9" x="14" y="12" rx="1" />
+          <rect width="7" height="5" x="3" y="16" rx="1" />
+        </svg>
+      );
+    case "documents":
+      return (
+        <svg {...common}>
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+          <path d="M14 2v6h6" />
+          <line x1="16" x2="8" y1="13" y2="13" />
+          <line x1="16" x2="8" y1="17" y2="17" />
+          <line x1="10" x2="8" y1="9" y2="9" />
+        </svg>
+      );
+    case "starred":
+      return (
+        <svg {...common}>
+          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+        </svg>
+      );
+    case "reports":
+      return (
+        <svg {...common}>
+          <line x1="12" x2="12" y1="20" y2="10" />
+          <line x1="18" x2="18" y1="20" y2="4" />
+          <line x1="6" x2="6" y1="20" y2="16" />
+        </svg>
+      );
+    case "notifications":
+      return (
+        <svg {...common}>
+          <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+          <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+        </svg>
+      );
+    case "tasks":
+      return (
+        <svg {...common}>
+          <rect width="18" height="18" x="3" y="3" rx="2" />
+          <path d="m9 12 2 2 4-4" />
+        </svg>
+      );
+    case "upload":
+      return (
+        <svg {...common}>
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+          <polyline points="17 8 12 3 7 8" />
+          <line x1="12" x2="12" y1="3" y2="15" />
+        </svg>
+      );
+    case "users":
+      return (
+        <svg {...common}>
+          <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+          <circle cx="9" cy="7" r="4" />
+          <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+          <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+        </svg>
+      );
+    case "folders":
+      return (
+        <svg {...common}>
+          <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" />
+        </svg>
+      );
+    case "trash":
+      return (
+        <svg {...common}>
+          <path d="M3 6h18" />
+          <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+          <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+          <line x1="10" x2="10" y1="11" y2="17" />
+          <line x1="14" x2="14" y1="11" y2="17" />
+        </svg>
+      );
+    case "audit":
+      return (
+        <svg {...common}>
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10" />
+          <path d="m9 12 2 2 4-4" />
+        </svg>
+      );
+  }
+}
+
 function NavItem({
   href,
   label,
-  marker,
+  icon,
   onNavigate,
 }: {
   href: string;
   label: string;
-  marker: string;
+  icon: NavIconName;
   onNavigate: () => void;
 }) {
   const pathname = usePathname();
@@ -41,7 +158,7 @@ function NavItem({
         aria-current={active ? "page" : undefined}
       >
         <span className="nav-marker" aria-hidden="true">
-          {marker}
+          <NavIcon name={icon} />
         </span>
         <span>{label}</span>
       </Link>
@@ -112,38 +229,38 @@ export function Navigation({ user }: { user: AuthorizedUser }) {
             <NavItem
               href="/dashboard"
               label="Dashboard"
-              marker="B"
+              icon="dashboard"
               onNavigate={close}
             />
             <NavItem
               href="/documents"
               label="Documents"
-              marker="D"
+              icon="documents"
               onNavigate={close}
             />
             <NavItem
               href="/documents/starred"
               label="Starred"
-              marker="S"
+              icon="starred"
               onNavigate={close}
             />
             <NavItem
               href="/reports"
               label="Reports"
-              marker="R"
+              icon="reports"
               onNavigate={close}
             />
             <NavItem
               href="/notifications"
               label="Notifications"
-              marker="N"
+              icon="notifications"
               onNavigate={close}
             />
             {hasMinimumRole(user.role, "STAFF") && (
               <NavItem
                 href="/tasks"
                 label="My tasks"
-                marker="K"
+                icon="tasks"
                 onNavigate={close}
               />
             )}
@@ -151,7 +268,7 @@ export function Navigation({ user }: { user: AuthorizedUser }) {
               <NavItem
                 href="/documents/upload"
                 label="Upload center"
-                marker="U"
+                icon="upload"
                 onNavigate={close}
               />
             )}
@@ -162,25 +279,25 @@ export function Navigation({ user }: { user: AuthorizedUser }) {
                 <NavItem
                   href="/admin/users"
                   label="User access"
-                  marker="A"
+                  icon="users"
                   onNavigate={close}
                 />
                 <NavItem
                   href="/admin/folders"
                   label="Folders & destinations"
-                  marker="F"
+                  icon="folders"
                   onNavigate={close}
                 />
                 <NavItem
                   href="/admin/trash"
                   label="Trash"
-                  marker="T"
+                  icon="trash"
                   onNavigate={close}
                 />
                 <NavItem
                   href="/admin/audit-log"
                   label="Audit log"
-                  marker="L"
+                  icon="audit"
                   onNavigate={close}
                 />
               </>

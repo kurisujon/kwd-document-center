@@ -67,21 +67,12 @@ export default async function AuditLogPage({
   try {
     const repository = createAuditRepository(createAdminClient());
     result = await repository.listAuditLogs(user.id, query);
-  } catch {
+  } catch (err) {
+    console.error("Audit log load error:", err);
     loadFailed = true;
   }
 
-  if (loadFailed || !result) {
-    return (
-      <section className="registry-error" role="alert">
-        <h1>Audit log unavailable</h1>
-        <p>We could not load the audit log. Please try again.</p>
-        <Link className="button button-secondary" href="/admin/audit-log">
-          Retry
-        </Link>
-      </section>
-    );
-  }
+  const safeResult: AuditLogListResult = result ?? { entries: [], total: 0, page: query.page, pageSize: query.pageSize, totalPages: 0 };
 
   const activeFilterCount = [
     query.actor,
@@ -104,6 +95,12 @@ export default async function AuditLogPage({
           </p>
         </div>
       </header>
+
+      {loadFailed && (
+        <div className="notice" role="alert" style={{ marginBlock: "1rem", backgroundColor: "#fffbeb", borderColor: "#fde68a", color: "#92400e", padding: "0.75rem 1rem", borderRadius: "6px" }}>
+          <strong>Notice:</strong> Unable to load audit log records. Please ensure database migrations have been executed.
+        </div>
+      )}
       <form className="search-panel" aria-label="Audit log filters">
         <div className="filter-heading">
           <div>
@@ -174,7 +171,7 @@ export default async function AuditLogPage({
             <p className="eyebrow">Audit entries</p>
             <h2 id="audit-results-title">Recorded events</h2>
           </div>
-          <span>{result.total.toLocaleString()} total</span>
+          <span>{safeResult.total.toLocaleString()} total</span>
         </div>
         <div className="table-wrap" aria-label="Audit log entries">
           <table>
@@ -188,7 +185,7 @@ export default async function AuditLogPage({
               </tr>
             </thead>
             <tbody>
-              {result.entries.length === 0 ? (
+              {safeResult.entries.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="empty-state">
                     <strong>No audit entries found.</strong>
@@ -196,7 +193,7 @@ export default async function AuditLogPage({
                   </td>
                 </tr>
               ) : (
-                result.entries.map((entry) => (
+                safeResult.entries.map((entry) => (
                   <tr key={entry.id}>
                     <td>{entry.created_at}</td>
                     <td>
@@ -227,22 +224,22 @@ export default async function AuditLogPage({
       <nav className="pagination" aria-label="Audit log pages">
         <span>
           Showing{" "}
-          {result.entries.length === 0 ? 0 : (result.page - 1) * result.pageSize + 1}–
-          {Math.min(result.page * result.pageSize, result.total)} of {result.total}
+          {safeResult.entries.length === 0 ? 0 : (safeResult.page - 1) * safeResult.pageSize + 1}–
+          {Math.min(safeResult.page * safeResult.pageSize, safeResult.total)} of {safeResult.total}
         </span>
         <div>
-          {result.page > 1 && (
+          {safeResult.page > 1 && (
             <Link
               className="button button-secondary"
-              href={auditQueryHref(query, { page: result.page - 1 })}
+              href={auditQueryHref(query, { page: safeResult.page - 1 })}
             >
               Previous
             </Link>
           )}
-          {result.page < result.totalPages && (
+          {safeResult.page < safeResult.totalPages && (
             <Link
               className="button button-secondary"
-              href={auditQueryHref(query, { page: result.page + 1 })}
+              href={auditQueryHref(query, { page: safeResult.page + 1 })}
             >
               Next
             </Link>

@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { TrashDocumentActions } from "@/components/documents/trash-document-actions";
 import { requireRole } from "@/lib/auth/server";
 import { listTrashedDocuments } from "@/lib/documents/delete-service";
@@ -18,21 +17,12 @@ export default async function AdminTrashPage() {
       actor: user,
       repository: createDeletionRepository(createAdminClient()),
     });
-  } catch {
+  } catch (err) {
+    console.error("Trash load error:", err);
     loadFailed = true;
   }
 
-  if (loadFailed || !documents) {
-    return (
-      <section className="registry-error" role="alert">
-        <h1>Trash unavailable</h1>
-        <p>We could not load the Document Center Trash. Please try again.</p>
-        <Link className="button button-secondary" href="/admin/trash">
-          Retry
-        </Link>
-      </section>
-    );
-  }
+  const safeDocuments = documents ?? [];
 
   return (
     <>
@@ -46,13 +36,20 @@ export default async function AdminTrashPage() {
           </p>
         </div>
       </header>
+
+      {loadFailed && (
+        <div className="notice" role="alert" style={{ marginBlock: "1rem", backgroundColor: "#fffbeb", borderColor: "#fde68a", color: "#92400e", padding: "0.75rem 1rem", borderRadius: "6px" }}>
+          <strong>Notice:</strong> Unable to load trashed records. Please verify database migrations if trash features were recently enabled.
+        </div>
+      )}
+
       <section className="results-section" aria-labelledby="trash-results-title">
         <div className="results-heading">
           <div>
             <p className="eyebrow">Soft-deleted documents</p>
             <h2 id="trash-results-title">Trash queue</h2>
           </div>
-          <span>{documents.length.toLocaleString()} total</span>
+          <span>{safeDocuments.length.toLocaleString()} total</span>
         </div>
         <div className="table-wrap" aria-label="Trashed documents">
           <table>
@@ -68,7 +65,7 @@ export default async function AdminTrashPage() {
               </tr>
             </thead>
             <tbody>
-              {documents.length === 0 ? (
+              {safeDocuments.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="empty-state">
                     <strong>Trash is empty.</strong>
@@ -76,7 +73,7 @@ export default async function AdminTrashPage() {
                   </td>
                 </tr>
               ) : (
-                documents.map((doc) => (
+                safeDocuments.map((doc) => (
                   <tr key={doc.document_id}>
                     <td>
                       <strong>{doc.document_number ?? "—"}</strong>

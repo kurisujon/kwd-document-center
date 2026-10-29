@@ -48,13 +48,14 @@ export default async function DocumentsPage({ searchParams }: { searchParams: Pr
   try {
     const supabase = await createClient();
     [result, documentTypes] = await Promise.all([listDocuments(supabase, query, user), listDocumentTypes(supabase, user)]);
-  } catch {
+  } catch (err) {
+    console.error("Documents load error:", err);
     loadFailed = true;
   }
 
-  if (loadFailed || !result || !documentTypes) return <section className="registry-error" role="alert"><h1>Documents unavailable</h1><p>We could not load the document registry. Please try again.</p><Link className="button button-secondary" href="/documents">Retry</Link></section>;
-
-  const pageCount = Math.max(1, Math.ceil(result.total / result.pageSize));
+  const safeResult = result ?? { documents: [], total: 0, page: query.page, pageSize: query.pageSize };
+  const safeDocumentTypes = documentTypes ?? [];
+  const pageCount = Math.max(1, Math.ceil(safeResult.total / safeResult.pageSize));
   const customFilterCount = Object.keys(query.customFilters ?? {}).length;
   const activeFilterCount = [query.q, query.type, query.dateFrom, query.dateTo].filter(Boolean).length + customFilterCount;
   const selectedTypeConfig = query.type ? getDocumentTypeConfig(query.type) : undefined;
@@ -69,6 +70,12 @@ export default async function DocumentsPage({ searchParams }: { searchParams: Pr
         </div>
         <DocumentPageActions role={user.role} />
       </header>
+
+      {loadFailed && (
+        <div className="notice" role="alert" style={{ marginBlock: "1rem", backgroundColor: "#fffbeb", borderColor: "#fde68a", color: "#92400e", padding: "0.75rem 1rem", borderRadius: "6px" }}>
+          <strong>Notice:</strong> Document registry is currently running in safe mode. If migrations are pending on your Supabase database, please apply them via the SQL Editor.
+        </div>
+      )}
 
       <section className="bento-grid" aria-label="Document workspace overview and filters">
         <form className="search-panel bento-tile bento-search" aria-label="Document filters">
@@ -87,7 +94,7 @@ export default async function DocumentsPage({ searchParams }: { searchParams: Pr
             Document type
             <select name="type" defaultValue={query.type ?? ""}>
               <option value="">All document types</option>
-              {documentTypes.map((type) => <option key={type} value={type}>{type}</option>)}
+              {safeDocumentTypes.map((type) => <option key={type} value={type}>{type}</option>)}
             </select>
           </label>
           <label className="field">
@@ -127,8 +134,8 @@ export default async function DocumentsPage({ searchParams }: { searchParams: Pr
 
         <div className="bento-tile bento-stat">
           <span className="overview-label">Registry</span>
-          <strong>{result.total.toLocaleString()}</strong>
-          <span>matching {result.total === 1 ? "document" : "documents"}</span>
+          <strong>{safeResult.total.toLocaleString()}</strong>
+          <span>matching {safeResult.total === 1 ? "document" : "documents"}</span>
         </div>
 
         <div className="bento-tile bento-stat">
@@ -183,7 +190,7 @@ export default async function DocumentsPage({ searchParams }: { searchParams: Pr
             <p className="eyebrow">Registry results</p>
             <h2 id="results-title">Documents</h2>
           </div>
-          <span>{result.total.toLocaleString()} total</span>
+          <span>{safeResult.total.toLocaleString()} total</span>
         </div>
         <div className="table-wrap" aria-label="Document results">
           <table>
@@ -197,7 +204,7 @@ export default async function DocumentsPage({ searchParams }: { searchParams: Pr
               </tr>
             </thead>
             <tbody>
-              {result.documents.length === 0 ? (
+              {safeResult.documents.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="empty-state">
                     <strong>No documents found.</strong>
@@ -205,7 +212,7 @@ export default async function DocumentsPage({ searchParams }: { searchParams: Pr
                   </td>
                 </tr>
               ) : (
-                result.documents.map((document) => (
+                safeResult.documents.map((document) => (
                   <tr key={document.document_id}>
                     <td className="nowrap-cell">
                       <strong>{document.document_number ?? "—"}</strong>
@@ -255,6 +262,6 @@ export default async function DocumentsPage({ searchParams }: { searchParams: Pr
           </table>
         </div>
       </section>
-      <nav className="pagination" aria-label="Document pages"><span>Showing {result.documents.length === 0 ? 0 : (result.page - 1) * result.pageSize + 1}–{Math.min(result.page * result.pageSize, result.total)} of {result.total}</span><div>{result.page > 1 && <Link className="button button-secondary" href={queryHref(query, { page: result.page - 1 })}>Previous</Link>}{result.page < pageCount && <Link className="button button-secondary" href={queryHref(query, { page: result.page + 1 })}>Next</Link>}</div></nav>
+      <nav className="pagination" aria-label="Document pages"><span>Showing {safeResult.documents.length === 0 ? 0 : (safeResult.page - 1) * safeResult.pageSize + 1}–{Math.min(safeResult.page * safeResult.pageSize, safeResult.total)} of {safeResult.total}</span><div>{safeResult.page > 1 && <Link className="button button-secondary" href={queryHref(query, { page: safeResult.page - 1 })}>Previous</Link>}{safeResult.page < pageCount && <Link className="button button-secondary" href={queryHref(query, { page: safeResult.page + 1 })}>Next</Link>}</div></nav>
     </>;
 }

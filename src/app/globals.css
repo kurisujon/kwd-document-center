@@ -558,7 +558,15 @@ input[type="file"]::file-selector-button:hover {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  flex-shrink: 0;
   color: currentColor;
+}
+.nav-marker svg {
+  width: 1.15rem;
+  height: 1.15rem;
+  display: block;
 }
 .nav-divider { height: 1px; margin: .85rem .5rem 0; background: var(--color-border); }
 .sidebar-footer {
@@ -826,8 +834,28 @@ tbody tr:hover { background: #f8fafc; }
 .confirmation-panel { display: flex; justify-content: space-between; align-items: flex-start; gap: 1.5rem; margin-top: 1rem; padding: 1.25rem; border: 1px solid var(--color-border); border-radius: var(--radius-tile); background: var(--color-surface); box-shadow: inset 3px 0 var(--color-error), var(--shadow-float); }
 .confirmation-panel p { margin: .35rem 0 0; color: var(--color-text-secondary); }
 .confirmation-actions { display: flex; flex: 0 0 auto; gap: .5rem; }
-.loading-fields span, .skeleton-table, .skeleton-detail { display: block; min-height: 2.75rem; border-radius: var(--radius-control); background: #eef2f7; }
-.skeleton-table { min-height: 18rem; } .skeleton-detail { min-height: 16rem; }
+@keyframes skeleton-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.loading-fields span,
+.skeleton-table,
+.skeleton-detail,
+.skeleton-card,
+.skeleton-line,
+.skeleton-header {
+  display: block;
+  border-radius: var(--radius-control);
+  background: linear-gradient(90deg, #eef2f7 25%, #f8fafc 50%, #eef2f7 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.8s infinite ease-in-out;
+}
+.skeleton-card { min-height: 7rem; }
+.skeleton-line { min-height: 1.5rem; margin-bottom: 0.5rem; }
+.skeleton-header { min-height: 3.5rem; margin-bottom: 1.5rem; width: 50%; }
+.skeleton-table { min-height: 18rem; }
+.skeleton-detail { min-height: 16rem; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; } }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
