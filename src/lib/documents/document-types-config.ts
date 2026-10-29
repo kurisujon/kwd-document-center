@@ -1,7 +1,47 @@
 import { z } from "zod";
 import { adminCategories, type AdminCategory } from "./admin-categories";
+import type { DocumentStatus } from "./types";
 
 export type FieldType = "text" | "number" | "date" | "select";
+
+export interface StatusTransitionRule {
+  from: DocumentStatus;
+  to: DocumentStatus;
+  allowedRoles: readonly ("ADMIN" | "STAFF")[];
+}
+
+export const STANDARD_STATUS_TRANSITIONS: readonly StatusTransitionRule[] = [
+  { from: "DRAFT", to: "UNDER_REVIEW", allowedRoles: ["ADMIN", "STAFF"] },
+  { from: "UNDER_REVIEW", to: "DRAFT", allowedRoles: ["ADMIN", "STAFF"] },
+  { from: "UNDER_REVIEW", to: "APPROVED", allowedRoles: ["ADMIN"] },
+  { from: "APPROVED", to: "ACTIVE", allowedRoles: ["ADMIN", "STAFF"] },
+  { from: "ACTIVE", to: "SUPERSEDED", allowedRoles: ["ADMIN"] },
+  { from: "ACTIVE", to: "ARCHIVED", allowedRoles: ["ADMIN"] },
+  { from: "SUPERSEDED", to: "ARCHIVED", allowedRoles: ["ADMIN"] },
+  { from: "ARCHIVED", to: "ACTIVE", allowedRoles: ["ADMIN"] },
+  { from: "DRAFT", to: "ACTIVE", allowedRoles: ["ADMIN", "STAFF"] },
+] as const;
+
+export function isStatusTransitionAllowed(
+  from: DocumentStatus,
+  to: DocumentStatus,
+  role: "ADMIN" | "STAFF" | "VIEWER",
+): { allowed: boolean; reason?: string } {
+  if (role !== "ADMIN" && role !== "STAFF") {
+    return { allowed: false, reason: "Insufficient role to change document status." };
+  }
+  if (from === to) {
+    return { allowed: true };
+  }
+  const match = STANDARD_STATUS_TRANSITIONS.find((rule) => rule.from === from && rule.to === to);
+  if (!match) {
+    return { allowed: false, reason: `Status transition from ${from} to ${to} is not permitted.` };
+  }
+  if (!match.allowedRoles.includes(role)) {
+    return { allowed: false, reason: `Transition from ${from} to ${to} requires an administrator.` };
+  }
+  return { allowed: true };
+}
 
 export interface SelectOption {
   value: string;

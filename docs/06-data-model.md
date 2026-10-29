@@ -104,7 +104,8 @@ Supabase/PostgreSQL is the application's document metadata registry for Phase 2.
 | `file_type` | TEXT | Nullable until Phase 3; **PROPOSED** | File MIME type |
 | `filing_year` | INTEGER | Nullable; **CONFIRMED Phase 3 Admin** | Logical Admin filing year |
 | `filing_subcategory` | TEXT | Nullable; **CONFIRMED Phase 3 Admin** | BAC or Attendance subcategory |
-| `status` | TEXT | `ACTIVE`/`ARCHIVED`; **PROPOSED** | Registry record status |
+| `status` | TEXT | `DRAFT`/`UNDER_REVIEW`/`APPROVED`/`ACTIVE`/`SUPERSEDED`/`ARCHIVED`; **Milestone 3 (ADR-008)** | Document lifecycle status |
+| `version_count` | INTEGER | `NOT NULL DEFAULT 1`; **Milestone 3 (ADR-008)** | Count of uploaded versions for this document |
 | `confidential` | BOOLEAN | `NOT NULL DEFAULT false`; **Milestone 1** | Marks confidential records visible only to ACTIVE ADMIN users via `public.can_read_document` |
 | `custom_metadata` | JSONB | `NOT NULL DEFAULT '{}'::jsonb`; **Milestone 2 (ADR-007)** | Type-specific structured fields defined in reviewed code configuration (`document-types-config.ts`), constrained to JSON objects. Indexed with GIN (`documents_custom_metadata_gin_idx`) |
 | `file_sha256` | TEXT | Nullable; **Milestone 2 (ADR-007)** | Server-computed SHA-256 hash (64 hex characters) of uploaded file bytes for duplicate detection. Indexed with `documents_file_sha256_idx` |
@@ -127,6 +128,23 @@ Phase 7A deletion uses service-role-only `SECURITY DEFINER` RPCs with a fixed
 search path and independent ACTIVE ADMIN actor checks. Direct browser mutation
 of deletion fields is not permitted. Deleted rows remain durable for audit and
 future restore; they are excluded from ordinary document reads.
+
+### document_links [IMPLEMENTED, MILESTONE 3]
+Tracks directed relationships between documents (`RELATES_TO`, `SUPERSEDES`, `AMENDS`).
+- `unique (from_id, to_id, relation)` and `from_id <> to_id`.
+- Enforces acyclic graph traversal for `SUPERSEDES` links via `public.check_supersede_cycle`.
+- RLS policy enforces `public.can_read_document` on **both** endpoints; links pointing to or from confidential documents are masked from non-admin viewers.
+
+### document_versions [IMPLEMENTED, MILESTONE 3]
+Maintains complete provenance of file versions for each document (`document_id`, `version_number`, `drive_file_id`, `file_name`, `file_type`, `file_size`, `file_sha256`, `change_summary`, `created_by`, `created_at`).
+- `public.documents.drive_file_id`, `file_name`, `file_type`, `file_sha256` remains the canonical source for active file operations (ADR-008).
+- RLS policy enforces `public.can_read_document` on `document_id`.
+
+### tags & document_tags [IMPLEMENTED, MILESTONE 3]
+Ad hoc categorization across categories. RLS enforces that tags on confidential documents are hidden from unauthorized users.
+
+### saved_filters [IMPLEMENTED, MILESTONE 3]
+User-scoped saved search queries (`user_id`, `name`, `query_params jsonb`). RLS restricts access to the owning user.
 
 ## 4. Google Sheets Registry [OUT OF SCOPE]
 

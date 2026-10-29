@@ -3,7 +3,7 @@ import { canReadDocument } from "../auth/permissions";
 import type { Role } from "../auth/types";
 import type { DocumentListQuery, DocumentRecord, PaginatedDocuments } from "./types";
 
-export const documentColumns = "document_id, document_type, document_number, document_date, subject, persons_involved, drive_file_id, drive_url, file_name, file_type, filing_year, filing_subcategory, status, deletion_state, confidential, custom_metadata, file_sha256, created_by, created_at, updated_at";
+export const documentColumns = "document_id, document_type, document_number, document_date, subject, persons_involved, drive_file_id, drive_url, file_name, file_type, filing_year, filing_subcategory, status, deletion_state, confidential, custom_metadata, file_sha256, version_count, created_by, created_at, updated_at";
 
 type DocumentReader = { role: Role; status?: "ACTIVE" | "INACTIVE" };
 

@@ -4,8 +4,14 @@ import { canReadDocument } from "@/lib/auth/permissions";
 import { requireAuthorizedUser } from "@/lib/auth/server";
 import { getDocumentTypeConfig } from "@/lib/documents/document-types-config";
 import { isInlinePreviewableMimeType } from "@/lib/documents/file-api";
+import {
+  listDocumentLinks,
+  listDocumentTags,
+  listDocumentVersions,
+} from "@/lib/documents/lifecycle-repository";
 import { getDocumentById } from "@/lib/documents/repository";
 import { isDocumentId } from "@/lib/documents/query";
+import type { DocumentLinkRecord, DocumentVersionRecord, TagRecord } from "@/lib/documents/types";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { DocumentConfidentialityAction } from "@/components/documents/document-confidentiality-action";
@@ -70,7 +76,25 @@ export default async function DocumentDetailPage({
     );
   }
 
+  const supabase = await createClient();
   let activityEntries: AuditLogEntry[] = [];
+  let links: DocumentLinkRecord[] = [];
+  let versions: DocumentVersionRecord[] = [];
+  let tags: TagRecord[] = [];
+
+  try {
+    const [linksRes, versionsRes, tagsRes] = await Promise.all([
+      listDocumentLinks(supabase, document.document_id, user),
+      listDocumentVersions(supabase, document.document_id, user),
+      listDocumentTags(supabase, document.document_id, user),
+    ]);
+    links = linksRes;
+    versions = versionsRes;
+    tags = tagsRes;
+  } catch {
+    // Non-fatal if extended properties fail to load
+  }
+
   if (user.role === "ADMIN") {
     try {
       const auditResult = await createAuditRepository(createAdminClient()).listAuditLogs(
@@ -123,6 +147,8 @@ export default async function DocumentDetailPage({
             <Metadata label="Document date" value={document.document_date} />
             <Metadata label="Subject" value={document.subject} />
             <Metadata label="Persons involved" value={document.persons_involved} />
+            <Metadata label="Status" value={document.status} />
+            <Metadata label="Version" value={`v${document.version_count || 1}`} />
             <Metadata
               label="Access level"
               value={document.confidential ? "Confidential (Admin only)" : "Standard"}
@@ -175,6 +201,104 @@ export default async function DocumentDetailPage({
               )}
             </section>
           )}
+
+          {tags.length > 0 && (
+            <div className="metadata-tags" style={{ marginTop: "1rem", display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+              {tags.map((tag) => (
+                <span
+                  key={tag.id}
+                  className="type-label"
+                  style={{ backgroundColor: "var(--color-surface)", border: "1px solid var(--color-border)", padding: "0.2rem 0.5rem", borderRadius: "4px", fontSize: "0.85rem" }}
+                >
+                  #{tag.name}
+                </span>
+              ))}
+            </div>
+          )}
+
+          <section className="document-relationships-section" aria-label="Document relationships" style={{ marginTop: "2rem" }}>
+            <div className="section-heading">
+              <p className="eyebrow">Lineage & connections</p>
+              <h2>Related documents</h2>
+            </div>
+            {links.length === 0 ? (
+              <p className="file-unavailable">No relationships linked to this document.</p>
+            ) : (
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Relationship</th>
+                      <th>Document</th>
+                      <th>Type</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {links.map((link) => (
+                      <tr key={link.id}>
+                        <td>
+                          <span className="type-label">{link.relation}</span>
+                        </td>
+                        <td>
+                          {link.target_document ? (
+                            <>
+                              <strong>{link.target_document.document_number || "Document"}</strong>: {link.target_document.subject}
+                            </>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
+                        <td>{link.target_document?.document_type || "—"}</td>
+                        <td>
+                          {link.target_document && (
+                            <Link className="table-action" href={`/documents/${link.target_document.document_id}`}>
+                              View document
+                            </Link>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+
+          <section className="document-versions-section" aria-label="Version history" style={{ marginTop: "2rem" }}>
+            <div className="section-heading">
+              <p className="eyebrow">Provenance</p>
+              <h2>Version history</h2>
+            </div>
+            {versions.length === 0 ? (
+              <p className="file-unavailable">Current version (v1) is active.</p>
+            ) : (
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Version</th>
+                      <th>File name</th>
+                      <th>Summary</th>
+                      <th>Uploaded</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {versions.map((v) => (
+                      <tr key={v.id}>
+                        <td>
+                          <span className="type-label">v{v.version_number}</span>
+                        </td>
+                        <td>{v.file_name}</td>
+                        <td>{v.change_summary || "Initial version"}</td>
+                        <td>{v.created_at}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
 
           {user.role === "ADMIN" && (
             <section className="document-activity-section" aria-label="Document activity">

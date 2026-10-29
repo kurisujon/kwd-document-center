@@ -60,6 +60,15 @@ Responsibilities:
 | List/Search documents | GET /api/documents | Search registry with filters (standard query + `meta_*` type-specific custom filters) | Yes | VIEWER |
 | Get document detail | GET /api/documents/:id | Get single document metadata | Yes | VIEWER |
 | Update document confidentiality | PATCH /api/documents/:id | Toggle `confidential` flag on an active document | Yes | ADMIN |
+| Change document status | PATCH /api/documents/:id/status | Transition document lifecycle status (state machine validation) | Yes | STAFF / ADMIN |
+| List document links | GET /api/documents/:id/links | Retrieve related, superseded, or amending documents | Yes | VIEWER |
+| Add document link | POST /api/documents/:id/links | Link document with cycle prevention for SUPERSEDES | Yes | STAFF |
+| Remove document link | DELETE /api/documents/:id/links/:linkId | Remove document relationship link | Yes | STAFF |
+| List document versions | GET /api/documents/:id/versions | Retrieve version provenance history | Yes | VIEWER |
+| Upload new version | POST /api/documents/:id/versions | Upload subsequent version file to Drive and update active pointer | Yes | STAFF |
+| List document tags | GET /api/documents/:id/tags | Retrieve assigned tags | Yes | VIEWER |
+| Add document tag | POST /api/documents/:id/tags | Assign tag to document | Yes | STAFF |
+| Remove document tag | DELETE /api/documents/:id/tags/:tagId | Remove tag from document | Yes | STAFF |
 | Upload document | POST /api/documents | Upload file + create registry entry | Yes | STAFF |
 | Open file | GET /api/documents/:id/open | Validate Drive availability, record `DOCUMENT_OPEN` audit entry, and redirect | Yes | VIEWER |
 | Download file | GET /api/documents/:id/download | Stream through the server (records `DOCUMENT_DOWNLOAD` unless `?inline=1` preview) | Yes | VIEWER |

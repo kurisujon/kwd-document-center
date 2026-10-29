@@ -10,6 +10,9 @@ export type DocumentSortField = (typeof documentSortFields)[number];
 export type SortOrder = "asc" | "desc";
 export type DocumentDeletionState = "ACTIVE" | "DELETE_PENDING" | "DELETED" | "DELETE_FAILED";
 
+export type DocumentStatus = "DRAFT" | "UNDER_REVIEW" | "APPROVED" | "ACTIVE" | "SUPERSEDED" | "ARCHIVED";
+export type DocumentRelation = "RELATES_TO" | "SUPERSEDES" | "AMENDS";
+
 export interface DocumentRecord {
   document_id: string;
   document_type: string;
@@ -23,14 +26,61 @@ export interface DocumentRecord {
   file_type: string | null;
   filing_year: number | null;
   filing_subcategory: string | null;
-  status: "ACTIVE" | "ARCHIVED";
+  status: DocumentStatus;
   deletion_state?: DocumentDeletionState;
   confidential?: boolean;
   custom_metadata?: Record<string, unknown>;
   file_sha256?: string | null;
+  version_count?: number;
   created_by: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface DocumentLinkRecord {
+  id: string;
+  from_id: string;
+  to_id: string;
+  relation: DocumentRelation;
+  created_by: string;
+  created_at: string;
+  target_document?: {
+    document_id: string;
+    document_type: string;
+    document_number: string | null;
+    subject: string;
+    confidential?: boolean;
+  };
+}
+
+export interface DocumentVersionRecord {
+  id: string;
+  document_id: string;
+  version_number: number;
+  drive_file_id: string;
+  file_name: string;
+  file_type: string;
+  file_size: number;
+  file_sha256: string;
+  change_summary: string;
+  created_by: string;
+  created_at: string;
+}
+
+export interface TagRecord {
+  id: string;
+  name: string;
+  color: string;
+  created_by?: string | null;
+  created_at: string;
+}
+
+export interface SavedFilterRecord {
+  id: string;
+  user_id: string;
+  name: string;
+  query_params: Record<string, unknown>;
+  created_at: string;
 }
 
 export interface DocumentListQuery {
