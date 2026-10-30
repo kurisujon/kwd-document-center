@@ -7,6 +7,8 @@ import type { DocumentListQuery, DocumentSortField, PaginatedDocuments } from "@
 import { createClient } from "@/lib/supabase/server";
 import { DocumentDeleteAction } from "@/components/documents/document-delete-action";
 import { DocumentPageActions } from "@/components/documents/document-page-actions";
+import { PageWideDropTarget } from "@/components/documents/page-wide-drop-target";
+import { hasMinimumRole } from "@/lib/auth/permissions";
 
 function queryHref(query: DocumentListQuery, updates: Partial<Record<keyof DocumentListQuery, string | number | undefined>>) {
   const params = new URLSearchParams();
@@ -62,6 +64,7 @@ export default async function DocumentsPage({ searchParams }: { searchParams: Pr
   const filterableFields = selectedTypeConfig?.fields.filter((f) => f.filterable) ?? [];
 
   return <>
+      {hasMinimumRole(user.role, "STAFF") && <PageWideDropTarget target="documents" />}
       <header className="page-heading">
         <div>
           <p className="eyebrow">Document workspace</p>

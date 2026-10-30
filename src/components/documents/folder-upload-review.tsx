@@ -9,6 +9,7 @@ import { FolderUploadCsvError, buildFolderUploadCsvPreview, createFolderUploadCs
 import { isFolderBulkEditable, selectedFolderBulkIds, validateFolderBulkValues, type FolderBulkMetadataField, type FolderBulkMetadataValues } from "@/lib/documents/folder-upload-bulk";
 import { toFolderUploadResultsCsvRow } from "@/lib/documents/folder-upload-results";
 import { adminUploadAccept } from "@/lib/documents/upload-formats";
+import { UploadDropzone } from "./upload-dropzone";
 
 type Destination = { destinationId: string; kind: "CATEGORY" | "SUBCATEGORY" | "WORKING_FOLDER"; filingYear: number; category: string; subcategory: string | null; label: string };
 type FolderItem = BatchUploadItem & { sourceRelativePath: string; sourcePathInput: string; attempted: boolean; retryDisposition?: FolderUploadRetryDisposition; recheckAvailableAt?: number };
@@ -141,7 +142,7 @@ export function FolderUploadReview({ maxBytes, onWorkflowLockChange }: { maxByte
     setSelectedIds((current) => new Set(nextItems.filter((item) => current.has(item.localId) && isFolderBulkEditable(item)).map((item) => item.localId)));
   }
 
-  function selectFolder(files: FileList | null) {
+  function selectFolder(files: FileList | readonly File[] | null) {
     if (!files?.length || uploading || attempted) return;
     rebuild(Array.from(files).map((file) => ({ file, path: file.webkitRelativePath })));
   }
@@ -323,18 +324,17 @@ export function FolderUploadReview({ maxBytes, onWorkflowLockChange }: { maxByte
         {destinationState.status === "ERROR" && <p role="alert" className="form-error">Upload destinations are temporarily unavailable. Try again later.</p>}
         {destinationState.status === "READY" && !destinationState.values.length && <p className="notice">No upload-enabled folders are available.</p>}
       </div>
-      <label className="field file-field upload-dropzone">
-        <span className="upload-dropzone-icon" aria-hidden="true">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-            <path d="m17 8-5-5-5 5" />
-            <path d="M12 3v12" />
-          </svg>
-        </span>
-        <span className="upload-dropzone-title">Folder</span>
-        <input ref={pickerRef} aria-label="Select a folder" type="file" multiple accept={adminUploadAccept} disabled={uploading || attempted} {...({ webkitdirectory: "" } as { webkitdirectory: string })} onChange={(event) => { selectFolder(event.target.files); event.currentTarget.value = ""; }} />
-        <span>Folder selection is supported in Chrome and Edge. Empty folders are not included.</span>
-      </label>
+      <UploadDropzone
+        title="Folder"
+        inputLabel="Select a folder"
+        accept={adminUploadAccept}
+        disabled={uploading || attempted}
+        directory={true}
+        inputRef={pickerRef}
+        hint="Folder selection is supported in Chrome and Edge. Empty folders are not included."
+        onFilesSelected={(files) => selectFolder(files)}
+        onNonFileRejected={(msg) => setManifestError(msg)}
+      />
     </div>
     {manifestError && <p className="form-error" role="alert">{manifestError}</p>}
     {items.length > 0 && <>

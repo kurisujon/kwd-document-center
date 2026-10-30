@@ -1,10 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { adminSubcategories, categoryUsesYear, type AdminCategory } from "@/lib/documents/admin-categories";
-import { appendBatchFiles, applyToSelectedBatchItems, batchUploadConcurrency, isBatchItemEditable, maximumBatchUploadFiles, prepareFailedBatchRetry, removeEditableBatchItem, selectAllEditableBatchItems, updateBatchItem, type BatchUploadDefaults, type BatchUploadItem } from "@/lib/documents/batch-upload-types";
+import { applyToSelectedBatchItems, batchUploadConcurrency, isBatchItemEditable, maximumBatchUploadFiles, prepareFailedBatchRetry, removeEditableBatchItem, selectAllEditableBatchItems, stageDroppedBatchFiles, updateBatchItem, type BatchUploadDefaults, type BatchUploadItem } from "@/lib/documents/batch-upload-types";
 import { createBatchUploadRunGuard, runBatchUploadQueue } from "@/lib/documents/batch-upload-queue";
 import { adminUploadAccept } from "@/lib/documents/upload-formats";
+import { UploadDropzone } from "./upload-dropzone";
+import { PageWideDropTarget } from "./page-wide-drop-target";
+import { stagedUploadStore } from "@/lib/documents/staged-upload-store";
 
 type Props = { categories: readonly AdminCategory[]; maxBytes: number };
 
@@ -18,12 +21,19 @@ function statusLabel(status: BatchUploadItem["status"]) {
 
 export function BatchUploadReview({ categories, maxBytes }: Props) {
   const [defaults, setDefaults] = useState<BatchUploadDefaults>(() => defaultValues(categories[0]));
-  const [items, setItems] = useState<BatchUploadItem[]>([]);
+  const [initialData] = useState(() => {
+    const staged = stagedUploadStore.consume();
+    if (staged.length > 0) {
+      return stageDroppedBatchFiles([], staged, defaultValues(categories[0]), maxBytes);
+    }
+    return { items: [], message: undefined };
+  });
+  const [items, setItems] = useState<BatchUploadItem[]>(() => initialData.items);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkDate, setBulkDate] = useState("");
   const [bulkPersons, setBulkPersons] = useState("");
   const [uploading, setUploading] = useState(false);
-  const [selectionError, setSelectionError] = useState<string>();
+  const [selectionError, setSelectionError] = useState<string | undefined>(() => initialData.message);
   const queueGuard = useRef(createBatchUploadRunGuard());
 
   const counts = useMemo(() => ({
@@ -48,13 +58,18 @@ export function BatchUploadReview({ categories, maxBytes }: Props) {
     setDefaults((current) => ({ ...current, ...change }));
   }
 
-  function selectFiles(files: FileList | null) {
-    if (!files?.length) return;
-    const selectedFiles = Array.from(files);
-    const next = appendBatchFiles(items, selectedFiles, defaults, maxBytes);
-    setSelectionError(next.error);
-    if (!next.error) setItems(next.items);
-  }
+  const addFiles = useCallback((files: File[]) => {
+    if (!files.length) return;
+    setItems((current) => {
+      const result = stageDroppedBatchFiles(current, files, defaults, maxBytes);
+      if (result.message) {
+        setSelectionError(result.message);
+      } else {
+        setSelectionError(undefined);
+      }
+      return result.items;
+    });
+  }, [defaults, maxBytes]);
 
   function toggleRow(localId: string, checked: boolean) {
     setSelected((current) => {
@@ -120,20 +135,24 @@ export function BatchUploadReview({ categories, maxBytes }: Props) {
   const allSelected = allSelectable.length > 0 && allSelectable.every((item) => selected.has(item.localId));
 
   return <section className="batch-upload" aria-labelledby="batch-upload-title">
+    <PageWideDropTarget
+      target="upload"
+      onFilesDropped={addFiles}
+      onNonFileRejected={(msg) => setSelectionError(msg)}
+    />
     <div className="section-heading"><h2 id="batch-upload-title">Select documents</h2><p>Select up to {maximumBatchUploadFiles} approved files. Every file remains an independent upload.</p></div>
     <div className="upload-config-grid">
-      <label className="field file-field upload-dropzone">
-        <span className="upload-dropzone-icon" aria-hidden="true">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-            <path d="m17 8-5-5-5 5" />
-            <path d="M12 3v12" />
-          </svg>
-        </span>
-        <span className="upload-dropzone-title">Document files</span>
-        <input aria-label="Select document files" type="file" multiple accept={adminUploadAccept} disabled={uploading} onChange={(event) => { selectFiles(event.target.files); event.currentTarget.value = ""; }} />
-        <span>Accepted files: PDF, Word, Excel, CSV, PowerPoint, JPG, PNG, and TXT. Maximum {Math.floor(maxBytes / 1024 / 1024)} MiB each.</span>
-      </label>
+      {/* Keyboard and drag target supporting type="file" multiple */}
+      <UploadDropzone
+        title="Document files"
+        inputLabel="Select document files"
+        accept={adminUploadAccept}
+        multiple={true}
+        disabled={uploading}
+        hint={`Accepted files: PDF, Word, Excel, CSV, PowerPoint, JPG, PNG, and TXT. Maximum ${Math.floor(maxBytes / 1024 / 1024)} MiB each.`}
+        onFilesSelected={addFiles}
+        onNonFileRejected={(msg) => setSelectionError(msg)}
+      />
       <fieldset className="batch-defaults" disabled={uploading}><legend>Common defaults</legend>
         <label className="field">Admin category<select value={defaults.document_type} onChange={(event) => { const category = event.target.value as AdminCategory; updateDefaults(defaultValues(category)); }}><>{categories.map((category) => <option key={category} value={category}>{category}</option>)}</></select></label>
         {categoryUsesYear(defaults.document_type) && <label className="field">Filing year<input type="number" min="1900" max="9999" value={defaults.filing_year ?? ""} onChange={(event) => updateDefaults({ filing_year: event.target.value ? Number(event.target.value) : null })} /></label>}
