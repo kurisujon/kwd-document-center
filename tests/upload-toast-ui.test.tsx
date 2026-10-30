@@ -4,6 +4,7 @@ import { JSDOM } from "jsdom";
 import React from "react";
 import { UploadQueueProvider } from "../src/components/documents/upload-queue-provider.tsx";
 import { UploadQueue } from "../src/lib/documents/upload-queue.ts";
+import { UploadTransportError } from "../src/lib/documents/upload-transport.ts";
 import type { AuthorizedUser } from "../src/lib/auth/types.ts";
 import type { BatchUploadMetadata } from "../src/lib/documents/batch-upload-types.ts";
 
@@ -140,5 +141,69 @@ test("upload-toast-ui: shows admin-only re-authorize link for admins when Google
   assert.equal(staffUi.queryByRole("link", { name: "Re-authorize Drive" }), null);
   assert.ok(staffUi.getAllByText(/Google Drive authorization has expired/).length > 0);
   staffUi.unmount();
+  queue.destroy();
+});
+
+test("upload-toast-ui: disables cancel during PROCESSING and displays Saving badge", () => {
+  const queue = new UploadQueue({
+    transport: () => ({
+      abort: () => {},
+      promise: new Promise(() => {}),
+    }),
+  });
+
+  queue.enqueue([
+    { localId: "proc-1", file: new File(["data"], "processing-item.pdf", { type: "application/pdf" }), metadata: sampleMetadata },
+  ]);
+
+  const item = queue.getSnapshot().items[0]!;
+  item.state = "PROCESSING";
+
+  const ui = render(
+    React.createElement(
+      UploadQueueProvider,
+      { user: staffUser, queue },
+      React.createElement("div", null, "Staff Workspace"),
+    ),
+  );
+
+  // Cancel button must not exist
+  assert.equal(ui.queryByRole("button", { name: "Cancel upload of processing-item.pdf" }), null);
+  // Saving badge must be present
+  assert.ok(ui.getByText("Saving…"));
+  ui.unmount();
+  queue.destroy();
+});
+
+test("upload-toast-ui: shows session expired banner and sign in link when auth expires", async () => {
+  const queue = new UploadQueue({
+    transport: () => ({
+      abort: () => {},
+      promise: Promise.reject(
+        new UploadTransportError("Your session has expired. Sign in is required.", 401, "UNAUTHORIZED"),
+      ),
+    }),
+  });
+
+  queue.enqueue([
+    { localId: "auth-1", file: new File(["data"], "auth-item.pdf", { type: "application/pdf" }), metadata: sampleMetadata },
+  ]);
+
+  await new Promise((r) => setTimeout(r, 10));
+
+  const ui = render(
+    React.createElement(
+      UploadQueueProvider,
+      { user: staffUser, queue },
+      React.createElement("div", null, "Staff Workspace"),
+    ),
+  );
+
+  assert.ok(ui.getByRole("alert"));
+  const signInLink = ui.getByRole("link", { name: "Sign in" });
+  assert.ok(signInLink);
+  assert.equal(signInLink.getAttribute("href"), "/login");
+  assert.ok(ui.getByText("Session expired. Please sign in to resume uploads."));
+  ui.unmount();
   queue.destroy();
 });

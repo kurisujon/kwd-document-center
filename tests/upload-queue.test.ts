@@ -211,7 +211,8 @@ test("upload-queue: expired Google token classifies isGoogleAuthExpired and show
         new UploadTransportError(
           "Google Drive authorization has expired. Please re-authorize Google Drive in Admin settings.",
           502,
-          "DRIVE_ERROR",
+          "DRIVE_AUTH_EXPIRED",
+          "/admin/drive-setup/authorize",
         ),
       ),
     };
@@ -229,10 +230,98 @@ test("upload-queue: expired Google token classifies isGoogleAuthExpired and show
   const item = snap.items[0]!;
   assert.equal(item.state, "FAILED");
   assert.equal(item.isGoogleAuthExpired, true);
-  assert.equal(item.errorCode, "DRIVE_ERROR");
+  assert.equal(item.errorCode, "DRIVE_AUTH_EXPIRED");
+  assert.equal(item.actionUrl, "/admin/drive-setup/authorize");
   assert.match(item.error ?? "", /re-authorize.*Admin/i);
 
   // Verify no secrets or sensitive tokens are present in item state or error string
   assert.doesNotMatch(item.error ?? "", /token|secret|client_id|refresh/i);
+  queue.destroy();
+});
+
+test("upload-queue: cancel is disabled during PROCESSING and cancelAll preserves PROCESSING items", async () => {
+  const triggerProcessingMap = new Map<string, () => void>();
+  const finishUploadMap = new Map<string, (res: UploadTransportResult) => void>();
+
+  const processingTransport = (options: UploadTransportOptions): ActiveUploadHandle => {
+    return {
+      abort: () => {},
+      promise: new Promise<UploadTransportResult>((resolve) => {
+        triggerProcessingMap.set(options.file.name, () => {
+          options.onProcessing?.();
+        });
+        finishUploadMap.set(options.file.name, (res) => resolve(res));
+      }),
+    };
+  };
+
+  const queue = new UploadQueue({ concurrency: 2, transport: processingTransport });
+
+  queue.enqueue([
+    { localId: "item-p1", file: createMockFile("file-p1.pdf"), metadata: sampleMetadata },
+    { localId: "item-p2", file: createMockFile("file-p2.pdf"), metadata: sampleMetadata },
+    { localId: "item-queued", file: createMockFile("file-q.pdf"), metadata: sampleMetadata },
+  ]);
+
+  // item-p1 and item-p2 start uploading
+  assert.equal(queue.getSnapshot().items[0]!.state, "UPLOADING");
+  assert.equal(queue.getSnapshot().items[1]!.state, "UPLOADING");
+  assert.equal(queue.getSnapshot().items[2]!.state, "QUEUED");
+
+  // Advance item-p1 to PROCESSING
+  triggerProcessingMap.get("file-p1.pdf")!();
+  assert.equal(queue.getSnapshot().items[0]!.state, "PROCESSING");
+
+  // Attempting to cancel item-p1 directly while in PROCESSING has no effect
+  queue.cancelItem("item-p1");
+  assert.equal(queue.getSnapshot().items[0]!.state, "PROCESSING", "Item in PROCESSING must not be cancelled");
+
+  // Executing cancelAll() cancels queued and uploading items, but preserves PROCESSING items
+  queue.cancelAll();
+  assert.equal(queue.getSnapshot().items[0]!.state, "PROCESSING", "PROCESSING item must survive cancelAll");
+  assert.equal(queue.getSnapshot().items[1]!.state, "CANCELLED", "UPLOADING item is cancelled by cancelAll");
+  assert.equal(queue.getSnapshot().items[2]!.state, "CANCELLED", "QUEUED item is cancelled by cancelAll");
+
+  // item-p1 completes successfully
+  finishUploadMap.get("file-p1.pdf")!({ document: { document_id: "doc-p1-id" } });
+  await new Promise((r) => setTimeout(r, 10));
+
+  assert.equal(queue.getSnapshot().items[0]!.state, "DONE");
+  assert.equal(queue.getSnapshot().items[0]!.documentId, "doc-p1-id");
+  queue.destroy();
+});
+
+test("upload-queue: 401 session expiry stops the queue and does not auto-retry", async () => {
+  let transportCalls = 0;
+  const mock401Transport = (): ActiveUploadHandle => {
+    transportCalls++;
+    return {
+      abort: () => {},
+      promise: Promise.reject(
+        new UploadTransportError("Your session has expired. Sign in is required.", 401, "UNAUTHORIZED", false, true),
+      ),
+    };
+  };
+
+  const queue = new UploadQueue({ concurrency: 1, transport: mock401Transport });
+
+  queue.enqueue([
+    { localId: "item-1", file: createMockFile("item1.pdf"), metadata: sampleMetadata },
+    { localId: "item-2", file: createMockFile("item2.pdf"), metadata: sampleMetadata },
+  ]);
+
+  await new Promise((r) => setTimeout(r, 10));
+
+  const snap = queue.getSnapshot();
+  assert.equal(snap.isPaused, true, "Queue must be paused on 401");
+  assert.equal(snap.isAuthExpired, true, "Auth expired state must be flagged");
+  assert.equal(snap.items[0]!.state, "FAILED");
+  assert.equal(snap.items[0]!.errorCode, "UNAUTHORIZED");
+  assert.equal(snap.items[0]!.isAuthExpired, true);
+
+  // Item 2 must remain QUEUED and not executed
+  assert.equal(snap.items[1]!.state, "QUEUED");
+  assert.equal(transportCalls, 1, "Queue must not start subsequent items after 401");
+
   queue.destroy();
 });

@@ -36,6 +36,7 @@ export interface UploadQueueItem {
   progressPercent: number; // 0 - 100
   error?: string;
   errorCode?: string;
+  actionUrl?: string;
   isAuthExpired?: boolean;
   isGoogleAuthExpired?: boolean;
   documentId?: string;
@@ -53,6 +54,8 @@ export interface QueueSnapshot {
   isIdle: boolean;
   hasActive: boolean;
   hasFailures: boolean;
+  isAuthExpired: boolean;
+  isPaused: boolean;
 }
 
 export interface EnqueueItemInput {
@@ -75,6 +78,7 @@ export class UploadQueue {
   private readonly concurrency: number;
   private readonly transport: typeof startDocumentUpload;
   private isPaused = false;
+  private isAuthExpired = false;
   private beforeUnloadRegistered = false;
   private currentSnapshot: QueueSnapshot;
 
@@ -129,6 +133,8 @@ export class UploadQueue {
       isIdle: !hasActive,
       hasActive,
       hasFailures: failedCount > 0,
+      isAuthExpired: this.isAuthExpired,
+      isPaused: this.isPaused,
     };
   }
 
@@ -202,7 +208,12 @@ export class UploadQueue {
       return;
     }
 
-    if (item.state === "UPLOADING" || item.state === "PROCESSING") {
+    // Disallow cancelling during PROCESSING: all bytes have arrived at the server and Drive write is in-flight
+    if (item.state === "PROCESSING") {
+      return;
+    }
+
+    if (item.state === "UPLOADING") {
       if (item.abortHandle) {
         item.abortHandle();
         item.abortHandle = undefined;
@@ -219,7 +230,7 @@ export class UploadQueue {
       if (item.state === "QUEUED") {
         item.state = "CANCELLED";
         changed = true;
-      } else if (item.state === "UPLOADING" || item.state === "PROCESSING") {
+      } else if (item.state === "UPLOADING") {
         if (item.abortHandle) {
           item.abortHandle();
           item.abortHandle = undefined;
@@ -227,9 +238,11 @@ export class UploadQueue {
         item.state = "CANCELLED";
         changed = true;
       }
+      // Items in PROCESSING are not cancelled because bytes have arrived and server is finalizing
     }
     if (changed) {
       this.emitChange();
+      this.processQueue();
     }
   }
 
@@ -237,11 +250,14 @@ export class UploadQueue {
     const item = this.items.find((i) => i.localId === localId);
     if (!item || (item.state !== "FAILED" && item.state !== "CANCELLED")) return;
 
+    this.isPaused = false;
+    this.isAuthExpired = false;
     item.state = "QUEUED";
     item.bytesSent = 0;
     item.progressPercent = 0;
     item.error = undefined;
     item.errorCode = undefined;
+    item.actionUrl = undefined;
     item.isAuthExpired = undefined;
     item.isGoogleAuthExpired = undefined;
     item.retryCount += 1;
@@ -253,6 +269,8 @@ export class UploadQueue {
 
   retryAllFailed(): void {
     let changed = false;
+    this.isPaused = false;
+    this.isAuthExpired = false;
     for (const item of this.items) {
       if (item.state === "FAILED" || item.state === "CANCELLED") {
         item.state = "QUEUED";
@@ -260,6 +278,7 @@ export class UploadQueue {
         item.progressPercent = 0;
         item.error = undefined;
         item.errorCode = undefined;
+        item.actionUrl = undefined;
         item.isAuthExpired = undefined;
         item.isGoogleAuthExpired = undefined;
         item.retryCount += 1;
@@ -361,12 +380,32 @@ export class UploadQueue {
         if (err instanceof UploadTransportError) {
           if (err.isAborted) {
             item.state = "CANCELLED";
-          } else {
-            item.error = err.message;
-            item.errorCode = err.code;
-            item.isAuthExpired = err.isAuthExpired;
-            item.isGoogleAuthExpired = err.isGoogleAuthExpired;
+            this.emitChange();
+            this.processQueue();
+            return;
           }
+          if (err.isAuthExpired) {
+            this.isPaused = true;
+            this.isAuthExpired = true;
+            item.error = "Your session has expired. Sign in is required.";
+            item.errorCode = "UNAUTHORIZED";
+            item.isAuthExpired = true;
+            this.emitChange();
+            // Do not continue queue: stop immediately
+            return;
+          }
+          if (err.isGoogleAuthExpired) {
+            item.error = err.message;
+            item.errorCode = "DRIVE_AUTH_EXPIRED";
+            item.isGoogleAuthExpired = true;
+            item.actionUrl = err.actionUrl;
+            this.emitChange();
+            this.processQueue();
+            return;
+          }
+          item.error = err.message;
+          item.errorCode = err.code;
+          item.actionUrl = err.actionUrl;
         } else if (err instanceof Error) {
           item.error = err.message;
         } else {

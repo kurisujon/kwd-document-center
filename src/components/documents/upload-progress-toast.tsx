@@ -82,7 +82,9 @@ export function UploadProgressToast() {
       <header className="upload-toast-header">
         <div className="upload-toast-header-info">
           <span className="upload-toast-indicator" aria-hidden="true">
-            {activeCount > 0 ? (
+            {snapshot.isAuthExpired ? (
+              <span className="upload-toast-badge-error">!</span>
+            ) : activeCount > 0 ? (
               <span className="upload-toast-spinner" />
             ) : snapshot.failedCount > 0 ? (
               <span className="upload-toast-badge-error">!</span>
@@ -90,7 +92,9 @@ export function UploadProgressToast() {
               <span className="upload-toast-badge-done">✓</span>
             )}
           </span>
-          <h2 className="upload-toast-title">{summaryTitle}</h2>
+          <h2 className="upload-toast-title">
+            {snapshot.isAuthExpired ? "Session expired" : summaryTitle}
+          </h2>
         </div>
 
         <div className="upload-toast-header-actions">
@@ -114,12 +118,22 @@ export function UploadProgressToast() {
         </div>
       </header>
 
+      {snapshot.isAuthExpired && (
+        <div className="upload-toast-auth-alert" role="alert">
+          <span>Session expired. Please sign in to resume uploads.</span>
+          <Link href="/login" className="upload-toast-auth-link">
+            Sign in
+          </Link>
+        </div>
+      )}
+
       {!isMinimized && (
         <>
           <ul className="upload-toast-list" role="list">
             {items.map((item) => {
-              const isExpired = item.isGoogleAuthExpired || (item.error && /re-authorize|authorization has expired/i.test(item.error));
-              const canCancel = item.state === "QUEUED" || item.state === "UPLOADING" || item.state === "PROCESSING";
+              const isDriveAuthExpired = item.errorCode === "DRIVE_AUTH_EXPIRED" || item.isGoogleAuthExpired;
+              const authorizeHref = item.actionUrl ?? (isAdmin ? "/admin/drive-setup/authorize" : undefined);
+              const canCancel = item.state === "QUEUED" || item.state === "UPLOADING";
               const canRetry = item.state === "FAILED" || item.state === "CANCELLED";
 
               return (
@@ -152,8 +166,8 @@ export function UploadProgressToast() {
                         </Link>
                       )}
 
-                      {isExpired && isAdmin && (
-                        <Link href="/admin/drive-setup/authorize" className="upload-toast-admin-link">
+                      {isDriveAuthExpired && authorizeHref && (
+                        <Link href={authorizeHref} className="upload-toast-admin-link">
                           Re-authorize Drive
                         </Link>
                       )}
@@ -170,6 +184,15 @@ export function UploadProgressToast() {
                       >
                         Cancel
                       </button>
+                    )}
+
+                    {item.state === "PROCESSING" && (
+                      <span
+                        className="upload-toast-processing-badge"
+                        title="Upload is being finalized in Google Drive and cannot be cancelled"
+                      >
+                        Saving…
+                      </span>
                     )}
 
                     {canRetry && (

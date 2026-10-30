@@ -570,23 +570,24 @@ test("missing Admin folder map falls back to root and fails only without a valid
 test("Drive permission and transient upload failures return safe errors", async () => withFolderMap(async () => {
   for (const kind of ["FORBIDDEN", "TRANSIENT", "PROVIDER"] as const) {
     const store = mockRepository();
-    await assert.rejects(() => uploadAdminDocument({ upload: validUpload(), user: staff, repository: store.repository, drive: mockDrive(new DriveServiceError(kind)).service }), (error: unknown) => error instanceof DocumentUploadError && error.code === "DRIVE_ERROR");
+    await assert.rejects(() => uploadAdminDocument({ upload: validUpload(), user: staff, repository: store.repository, drive: mockDrive(new DriveServiceError(kind)).service }), (error: unknown) => error instanceof DocumentUploadError && (error.code === "DRIVE_ERROR" || error.code === "DRIVE_AUTH_EXPIRED"));
     assert.equal(store.current()?.status, "FAILED");
   }
 }));
 
-test("expired Google token shows admin-only guidance without exposing token or secret details", async () => withFolderMap(async () => {
+test("expired Google token shows admin-only guidance without exposing token or secret details, including in raw API response", async () => withFolderMap(async () => {
   const adminUser: AuthorizedUser = { ...staff, id: "44444444-4444-4444-8444-444444444444", role: "ADMIN" };
   const storeAdmin = mockRepository();
   const forbiddenError = new DriveServiceError("FORBIDDEN");
 
-  // Admin user receives admin re-authorization guidance
+  // Admin user receives admin re-authorization guidance and actionUrl in service error
   await assert.rejects(
     () => uploadAdminDocument({ upload: validUpload(), user: adminUser, repository: storeAdmin.repository, drive: mockDrive(forbiddenError).service }),
     (error: unknown) => {
       assert.ok(error instanceof DocumentUploadError);
-      assert.equal(error.code, "DRIVE_ERROR");
+      assert.equal(error.code, "DRIVE_AUTH_EXPIRED");
       assert.equal(error.status, 502);
+      assert.equal(error.actionUrl, "/admin/drive-setup/authorize");
       assert.match(error.message, /re-authorize.*Admin/i);
       // Ensure zero token, client ID, or secret details are leaked
       assert.doesNotMatch(error.message, /token|refresh|secret|client_id|oauth/i);
@@ -600,14 +601,73 @@ test("expired Google token shows admin-only guidance without exposing token or s
     () => uploadAdminDocument({ upload: validUpload(), user: staff, repository: storeStaff.repository, drive: mockDrive(forbiddenError).service }),
     (error: unknown) => {
       assert.ok(error instanceof DocumentUploadError);
-      assert.equal(error.code, "DRIVE_ERROR");
+      assert.equal(error.code, "DRIVE_AUTH_EXPIRED");
       assert.equal(error.status, 502);
+      assert.equal(error.actionUrl, undefined);
       assert.match(error.message, /contact an administrator/i);
       // Must not link to admin setup or leak tokens
       assert.doesNotMatch(error.message, /admin settings|drive-setup|token|refresh|secret/i);
       return true;
     },
   );
+
+  // Test raw API handler response format: admin gets actionUrl, staff does not
+  const adminHandler = createUploadDocumentHandler({
+    getAuthorization: async () => ({ kind: "authorized", user: adminUser }),
+    uploadDocument: async () => uploadAdminDocument({ upload: validUpload(), user: adminUser, repository: mockRepository().repository, drive: mockDrive(forbiddenError).service }),
+  });
+  const adminResponse = await adminHandler(uploadRequest());
+  assert.equal(adminResponse.status, 502);
+  const adminBody = await adminResponse.json() as { error: { code: string; message: string; actionUrl?: string } };
+  assert.equal(adminBody.error.code, "DRIVE_AUTH_EXPIRED");
+  assert.equal(adminBody.error.actionUrl, "/admin/drive-setup/authorize");
+
+  const staffHandler = createUploadDocumentHandler({
+    getAuthorization: async () => ({ kind: "authorized", user: staff }),
+    uploadDocument: async () => uploadAdminDocument({ upload: validUpload(), user: staff, repository: mockRepository().repository, drive: mockDrive(forbiddenError).service }),
+  });
+  const staffResponse = await staffHandler(uploadRequest());
+  assert.equal(staffResponse.status, 502);
+  const staffBody = await staffResponse.json() as { error: { code: string; message: string; actionUrl?: string } };
+  assert.equal(staffBody.error.code, "DRIVE_AUTH_EXPIRED");
+  assert.equal(staffBody.error.actionUrl, undefined);
+}));
+
+test("retry after the first attempt succeeded but the response was lost: one document, existing result returned", async () => withFolderMap(async () => {
+  const store = mockRepository();
+  const drive = mockDrive();
+  const upload = validUpload();
+
+  // First attempt: succeeds and stores document in database
+  const firstResult = await uploadAdminDocument({
+    upload,
+    user: staff,
+    repository: store.repository,
+    drive: drive.service,
+  });
+  assert.equal(firstResult.created, true);
+  assert.ok(firstResult.document.document_id);
+  const initialDocumentId = firstResult.document.document_id;
+
+  assert.equal(store.current()?.status, "COMPLETE");
+  assert.equal(drive.uploads(), 1);
+
+  // Second attempt: simulates client dropped connection before receiving 201 response.
+  // Client retries with the exact same idempotency key and payload.
+  const retryResult = await uploadAdminDocument({
+    upload,
+    user: staff,
+    repository: store.repository,
+    drive: drive.service,
+  });
+
+  // Must return the existing document with created: false (reused: true)
+  assert.equal(retryResult.created, false);
+  assert.equal(retryResult.document.document_id, initialDocumentId);
+
+  // Verify finalize was not run a second time and no duplicate Drive file was generated
+  assert.equal(store.calls.filter((c) => c === "finalize").length, 1, "Finalize must occur exactly once");
+  assert.equal(drive.uploads(), 1, "No duplicate Drive file may be created on lost-response retry");
 }));
 
 test("Drive timeout, 429, unavailable, permission, and missing-file diagnostics are classified without exposing provider details", () => {

@@ -21,6 +21,7 @@ export class UploadTransportError extends Error {
     message: string,
     readonly status: number,
     readonly code: string,
+    readonly actionUrl?: string,
     readonly responseBody?: unknown,
   ) {
     super(message);
@@ -36,11 +37,11 @@ export class UploadTransportError extends Error {
   }
 
   get isAuthExpired(): boolean {
-    return this.status === 401;
+    return this.status === 401 || this.code === "UNAUTHORIZED";
   }
 
   get isGoogleAuthExpired(): boolean {
-    return this.code === "DRIVE_ERROR" && this.status === 502;
+    return this.code === "DRIVE_AUTH_EXPIRED" || (this.code === "DRIVE_ERROR" && this.status === 502);
   }
 }
 
@@ -118,7 +119,7 @@ export function startDocumentUpload(options: UploadTransportOptions): ActiveUplo
 
       if (!activeXhr) return;
 
-      let body: { document?: DocumentRecord; reused?: boolean; error?: { code?: string; message?: string } } = {};
+      let body: { document?: DocumentRecord; reused?: boolean; error?: { code?: string; message?: string; actionUrl?: string } } = {};
       try {
         body = JSON.parse(activeXhr.responseText || "{}");
       } catch {
@@ -133,7 +134,8 @@ export function startDocumentUpload(options: UploadTransportOptions): ActiveUplo
       } else {
         const code = body.error?.code ?? "UPLOAD_ERROR";
         const message = body.error?.message ?? `The document could not be uploaded (HTTP ${activeXhr.status}).`;
-        reject(new UploadTransportError(message, activeXhr.status, code, body));
+        const actionUrl = body.error?.actionUrl;
+        reject(new UploadTransportError(message, activeXhr.status, code, actionUrl, body));
       }
     };
 

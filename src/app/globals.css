@@ -1314,6 +1314,35 @@ tbody tr:hover { background: #f8fafc; }
   color: var(--color-text-primary);
 }
 
+.upload-toast-auth-alert {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.6rem 1rem;
+  background: #fef2f2;
+  border-bottom: 1px solid #fecaca;
+  color: #991b1b;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.upload-toast-auth-link {
+  color: #dc2626;
+  text-decoration: underline;
+  white-space: nowrap;
+}
+
+.upload-toast-processing-badge {
+  font-size: 0.75rem;
+  color: var(--color-brand);
+  background: var(--color-primary-soft);
+  border: 1px solid #bfdbfe;
+  border-radius: var(--radius-inner);
+  padding: 0.2rem 0.45rem;
+  font-weight: 600;
+}
+
 .upload-toast-retry-btn {
   border-color: #fca5a5;
   color: #dc2626;

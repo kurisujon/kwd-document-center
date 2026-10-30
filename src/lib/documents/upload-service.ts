@@ -9,16 +9,18 @@ import type { HierarchyFolderRecord } from "./hierarchy-repository";
 import type { UploadAttempt, UploadMetadataSnapshot, UploadResult, ValidatedAdminUpload, ValidatedFolderUpload } from "./upload-types";
 import { logOperationalFailure } from "../observability/log";
 
-export type UploadErrorCode = "VALIDATION_ERROR" | "DRIVE_ERROR" | "REGISTRY_ERROR" | "UPLOAD_IN_PROGRESS" | "DUPLICATE_DOCUMENT";
+export type UploadErrorCode = "VALIDATION_ERROR" | "DRIVE_ERROR" | "DRIVE_AUTH_EXPIRED" | "REGISTRY_ERROR" | "UPLOAD_IN_PROGRESS" | "DUPLICATE_DOCUMENT";
 
 export class DocumentUploadError extends Error {
   readonly code: UploadErrorCode;
   readonly status: number;
+  readonly actionUrl?: string;
 
-  constructor(code: UploadErrorCode, message: string, status: number) {
+  constructor(code: UploadErrorCode, message: string, status: number, actionUrl?: string) {
     super(message);
     this.code = code;
     this.status = status;
+    this.actionUrl = actionUrl;
   }
 }
 
@@ -240,10 +242,11 @@ export async function uploadAdminDocument(input: {
         }
       }
       if (error.kind === "FORBIDDEN") {
-        const message = input.user.role === "ADMIN"
+        const isAdmin = input.user.role === "ADMIN";
+        const message = isAdmin
           ? "Google Drive authorization has expired. Please re-authorize Google Drive in Admin settings."
           : "Google Drive storage connection has expired. Please contact an administrator.";
-        throw new DocumentUploadError("DRIVE_ERROR", message, 502);
+        throw new DocumentUploadError("DRIVE_AUTH_EXPIRED", message, 502, isAdmin ? "/admin/drive-setup/authorize" : undefined);
       }
       throw new DocumentUploadError("DRIVE_ERROR", "Google Drive upload recovery is pending. Retry this submission with the same idempotency key.", 503);
     }
@@ -344,10 +347,11 @@ export async function uploadFolderDocument(input: {
         }
       }
       if (error.kind === "FORBIDDEN") {
-        const message = input.user.role === "ADMIN"
+        const isAdmin = input.user.role === "ADMIN";
+        const message = isAdmin
           ? "Google Drive authorization has expired. Please re-authorize Google Drive in Admin settings."
           : "Google Drive storage connection has expired. Please contact an administrator.";
-        throw new DocumentUploadError("DRIVE_ERROR", message, 502);
+        throw new DocumentUploadError("DRIVE_AUTH_EXPIRED", message, 502, isAdmin ? "/admin/drive-setup/authorize" : undefined);
       }
       throw new DocumentUploadError("DRIVE_ERROR", "Google Drive upload recovery is pending. Retry this submission with the same idempotency key.", 503);
     }
