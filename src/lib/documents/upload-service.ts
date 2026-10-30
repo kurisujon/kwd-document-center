@@ -239,7 +239,8 @@ export async function uploadAdminDocument(input: {
         if (existing && !existing.trashed && existing.id === attempt.drive_file_id) {
           const expectedSize = upload.file.bytes.length;
           const expectedMd5 = createHash("md5").update(upload.file.bytes).digest("hex").toLowerCase();
-          const sizeMatches = existing.size === null || existing.size === undefined || existing.size === expectedSize;
+          const existingSize = existing.size !== null && existing.size !== undefined && existing.size !== "" ? Number(existing.size) : null;
+          const sizeMatches = existingSize === null || (!Number.isNaN(existingSize) && existingSize === expectedSize);
           const md5Matches = !existing.md5Checksum || existing.md5Checksum.toLowerCase() === expectedMd5;
 
           if (!sizeMatches || !md5Matches) {

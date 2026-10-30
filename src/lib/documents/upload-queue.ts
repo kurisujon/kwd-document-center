@@ -91,7 +91,7 @@ export class UploadQueue {
   constructor(config?: UploadQueueConfig) {
     this.concurrency = config?.concurrency ?? batchUploadConcurrency;
     this.transport = config?.transport ?? startDocumentUpload;
-    this.processingTimeoutMs = config?.processingTimeoutMs ?? 60_000;
+    this.processingTimeoutMs = config?.processingTimeoutMs ?? 75_000;
     this.currentSnapshot = this.computeSnapshot();
 
     if (typeof window !== "undefined") {

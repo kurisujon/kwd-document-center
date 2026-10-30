@@ -1643,3 +1643,63 @@ test("crashed worker left mismatched file in Drive: retry detects size/MD5 misma
   assert.equal(store.calls.filter((c) => c === "finalize").length, 0, "must not adopt or finalize mismatched Drive file");
   assert.equal(store.current()?.status, "UPLOADING", "must not transition to COMPLETE");
 }));
+
+test("reclaim converts Drive size string to number before comparison and successfully adopts matching file", async () => withFolderMap(async () => {
+  const upload = validUpload();
+  const existingDriveId = document.drive_file_id!;
+  let uploadCallCount = 0;
+  let getMetadataCallCount = 0;
+
+  // Fake Google Drive returning size as string "4" (Drive v3 API Schema$File format)
+  const driveFileWithStringSize: DriveFileMetadata = {
+    id: existingDriveId,
+    name: upload.file.name,
+    mimeType: upload.file.mimeType,
+    trashed: false,
+    webViewLink: "https://drive.google.com/file/d/" + existingDriveId,
+    size: String(upload.file.bytes.length), // Raw string "4"
+    md5Checksum: createHash("md5").update(upload.file.bytes).digest("hex"),
+  };
+
+  const driveService: DriveService = {
+    async generateFileId() { throw new Error("generateFileId should not be called"); },
+    async upload() {
+      uploadCallCount += 1;
+      return { id: existingDriveId, name: upload.file.name, mimeType: upload.file.mimeType, trashed: false, webViewLink: "https://drive.google.com/file/d/" + existingDriveId };
+    },
+    async getMetadata(fileId: string) {
+      getMetadataCallCount += 1;
+      if (fileId === existingDriveId) return driveFileWithStringSize;
+      throw new DriveServiceError("NOT_FOUND", "File not found");
+    },
+    async download() { throw new Error("not used"); },
+  };
+
+  const store = mockRepository({
+    existing: {
+      id: "33333333-3333-4333-8333-333333333333",
+      idempotency_key: upload.idempotencyKey,
+      status: "UPLOADING",
+      drive_file_id: existingDriveId,
+      operation_token: "crashed-worker-token",
+      reservation_expires_at: new Date(Date.now() - 5000).toISOString(),
+      metadata_snapshot: snapshot(upload),
+      document_id: null,
+      created_by: staff.id,
+      safe_error_code: null,
+    },
+  });
+
+  const result = await uploadAdminDocument({
+    upload,
+    user: staff,
+    repository: store.repository,
+    drive: driveService,
+  });
+
+  assert.ok(result.document);
+  assert.equal(result.document.document_id, document.document_id);
+  assert.equal(getMetadataCallCount, 1, "checked Google Drive metadata");
+  assert.equal(uploadCallCount, 0, "did not re-upload because string size was converted to number and matched");
+  assert.equal(store.current()?.status, "COMPLETE");
+}));
