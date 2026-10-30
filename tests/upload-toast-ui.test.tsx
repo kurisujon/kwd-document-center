@@ -203,7 +203,7 @@ test("upload-toast-ui: shows session expired banner and sign in link when auth e
   const signInLink = ui.getByRole("link", { name: "Sign in" });
   assert.ok(signInLink);
   assert.equal(signInLink.getAttribute("href"), "/login");
-  assert.ok(ui.getByText("Session expired. Please sign in to resume uploads."));
+  assert.ok(ui.getByText("Session expired. Queued files do not survive sign-in; please re-upload after signing in."));
   ui.unmount();
   queue.destroy();
 });

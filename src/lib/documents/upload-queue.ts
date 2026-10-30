@@ -70,6 +70,7 @@ export interface EnqueueItemInput {
 export interface UploadQueueConfig {
   concurrency?: number;
   transport?: typeof startDocumentUpload;
+  processingTimeoutMs?: number;
 }
 
 export class UploadQueue {
@@ -77,6 +78,7 @@ export class UploadQueue {
   private readonly listeners = new Set<(snapshot: QueueSnapshot) => void>();
   private readonly concurrency: number;
   private readonly transport: typeof startDocumentUpload;
+  private readonly processingTimeoutMs: number;
   private isPaused = false;
   private isAuthExpired = false;
   private beforeUnloadRegistered = false;
@@ -85,6 +87,7 @@ export class UploadQueue {
   constructor(config?: UploadQueueConfig) {
     this.concurrency = config?.concurrency ?? batchUploadConcurrency;
     this.transport = config?.transport ?? startDocumentUpload;
+    this.processingTimeoutMs = config?.processingTimeoutMs ?? 60_000;
     this.currentSnapshot = this.computeSnapshot();
 
     if (typeof window !== "undefined") {
@@ -301,7 +304,8 @@ export class UploadQueue {
 
   clear(): void {
     this.cancelAll();
-    this.items = [];
+    // Items in PROCESSING are not aborted or cancelled; keep them to finalize safely
+    this.items = this.items.filter((i) => i.state === "PROCESSING");
     this.emitChange();
   }
 
@@ -330,6 +334,14 @@ export class UploadQueue {
     item.progressPercent = 0;
     item.error = undefined;
 
+    let processingTimer: ReturnType<typeof setTimeout> | null = null;
+    const clearProcessingTimer = () => {
+      if (processingTimer) {
+        clearTimeout(processingTimer);
+        processingTimer = null;
+      }
+    };
+
     const handle: ActiveUploadHandle = this.transport({
       file: item.file,
       metadata: item.metadata,
@@ -352,6 +364,18 @@ export class UploadQueue {
           item.bytesSent = item.totalBytes;
           item.progressPercent = 100;
           this.emitChange();
+
+          clearProcessingTimer();
+          processingTimer = setTimeout(() => {
+            if (item.state === "PROCESSING") {
+              item.state = "FAILED";
+              item.error = "Taking longer than expected. Retry is safe.";
+              item.errorCode = "PROCESSING_TIMEOUT";
+              item.abortHandle = undefined;
+              this.emitChange();
+              this.processQueue();
+            }
+          }, this.processingTimeoutMs);
         }
       },
     });
@@ -361,6 +385,7 @@ export class UploadQueue {
 
     handle.promise
       .then((result) => {
+        clearProcessingTimer();
         if (item.state === "CANCELLED") return;
         item.state = "DONE";
         item.bytesSent = item.totalBytes;
@@ -372,6 +397,7 @@ export class UploadQueue {
         this.processQueue();
       })
       .catch((err: unknown) => {
+        clearProcessingTimer();
         if (item.state === "CANCELLED") return;
 
         item.state = "FAILED";
@@ -387,7 +413,7 @@ export class UploadQueue {
           if (err.isAuthExpired) {
             this.isPaused = true;
             this.isAuthExpired = true;
-            item.error = "Your session has expired. Sign in is required.";
+            item.error = "Session expired. Queued files cannot be saved across sign-in; please sign in and re-upload.";
             item.errorCode = "UNAUTHORIZED";
             item.isAuthExpired = true;
             this.emitChange();

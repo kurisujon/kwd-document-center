@@ -77,6 +77,7 @@ export function startDocumentUpload(options: UploadTransportOptions): ActiveUplo
 
   let xhr: XMLHttpRequest | null = new XMLHttpRequest();
   let aborted = false;
+  let isProcessing = false;
 
   const abort = () => {
     if (!aborted && xhr) {
@@ -106,6 +107,7 @@ export function startDocumentUpload(options: UploadTransportOptions): ActiveUplo
           const percent = Math.min(100, Math.round((event.loaded / event.total) * 100));
           onProgress?.({ loaded: event.loaded, total: event.total, percent });
           if (event.loaded >= event.total) {
+            isProcessing = true;
             onProcessing?.();
           }
         }
@@ -142,13 +144,45 @@ export function startDocumentUpload(options: UploadTransportOptions): ActiveUplo
     xhr!.onerror = () => {
       signal?.removeEventListener("abort", onSignalAbort);
       xhr = null;
-      reject(new UploadTransportError("Network connection was interrupted. Please retry.", 0, "NETWORK_ERROR"));
+      if (isProcessing) {
+        reject(
+          new UploadTransportError(
+            "Connection was lost while saving. Please retry to confirm whether the document was saved.",
+            0,
+            "NETWORK_ERROR",
+          ),
+        );
+      } else {
+        reject(
+          new UploadTransportError(
+            "Network connection was interrupted. Please retry.",
+            0,
+            "NETWORK_ERROR",
+          ),
+        );
+      }
     };
 
     xhr!.ontimeout = () => {
       signal?.removeEventListener("abort", onSignalAbort);
       xhr = null;
-      reject(new UploadTransportError("Upload request timed out. Please retry.", 0, "TIMEOUT_ERROR"));
+      if (isProcessing) {
+        reject(
+          new UploadTransportError(
+            "Taking longer than expected. Retry is safe.",
+            0,
+            "PROCESSING_TIMEOUT",
+          ),
+        );
+      } else {
+        reject(
+          new UploadTransportError(
+            "Upload request timed out. Please retry.",
+            0,
+            "TIMEOUT_ERROR",
+          ),
+        );
+      }
     };
 
     xhr!.onabort = () => {

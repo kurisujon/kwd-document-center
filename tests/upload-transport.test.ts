@@ -184,6 +184,64 @@ test("upload-transport: server error parses error code and message safely", asyn
   );
 });
 
+test("upload-transport: lost connection during saving informs staff to retry to confirm", async () => {
+  const file = new File(["sample"], "memo.pdf", { type: "application/pdf" });
+
+  const handle = startDocumentUpload({
+    file,
+    metadata: mockMetadata,
+    idempotencyKey: "test-idempotency-key-5",
+  });
+
+  const xhr = MockXMLHttpRequest.lastInstance;
+  assert.ok(xhr);
+
+  // Trigger 100% upload bytes sent -> enters saving phase
+  xhr.upload.onprogress?.({ lengthComputable: true, loaded: 1000, total: 1000 });
+
+  // Network drops while waiting for Google Drive / DB response
+  xhr.onerror?.();
+
+  await assert.rejects(
+    handle.promise,
+    (err: unknown) => {
+      assert.ok(err instanceof UploadTransportError);
+      assert.equal(err.code, "NETWORK_ERROR");
+      assert.match(err.message, /Connection was lost while saving\. Please retry to confirm/);
+      return true;
+    },
+  );
+});
+
+test("upload-transport: timeout during saving rejects with PROCESSING_TIMEOUT and safe retry guidance", async () => {
+  const file = new File(["sample"], "memo.pdf", { type: "application/pdf" });
+
+  const handle = startDocumentUpload({
+    file,
+    metadata: mockMetadata,
+    idempotencyKey: "test-idempotency-key-6",
+  });
+
+  const xhr = MockXMLHttpRequest.lastInstance;
+  assert.ok(xhr);
+
+  // Trigger 100% upload bytes sent
+  xhr.upload.onprogress?.({ lengthComputable: true, loaded: 1000, total: 1000 });
+
+  // Client timeout fires
+  xhr.ontimeout?.();
+
+  await assert.rejects(
+    handle.promise,
+    (err: unknown) => {
+      assert.ok(err instanceof UploadTransportError);
+      assert.equal(err.code, "PROCESSING_TIMEOUT");
+      assert.equal(err.message, "Taking longer than expected. Retry is safe.");
+      return true;
+    },
+  );
+});
+
 // Restore original XHR if any
 test.after(() => {
   (globalThis as unknown as { XMLHttpRequest: unknown }).XMLHttpRequest = originalXHR;

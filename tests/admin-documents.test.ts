@@ -670,6 +670,86 @@ test("retry after the first attempt succeeded but the response was lost: one doc
   assert.equal(drive.uploads(), 1, "No duplicate Drive file may be created on lost-response retry");
 }));
 
+test("two overlapping requests with the same idempotency key while the first is processing reject with 409 and create one document and one Drive file", async () => withFolderMap(async () => {
+  const store = mockRepository();
+  let releaseDriveUpload: () => void = () => {};
+  let uploadStarted = false;
+  let driveUploadCalls = 0;
+
+  const slowDrive: DriveService = {
+    async generateFileId() {
+      return document.drive_file_id;
+    },
+    async upload(input) {
+      driveUploadCalls += 1;
+      uploadStarted = true;
+      await new Promise<void>((resolve) => {
+        releaseDriveUpload = resolve;
+      });
+      return { id: input.fileId, name: input.name, mimeType: input.mimeType, sizeBytes: input.bytes.byteLength };
+    },
+    async getFile() {
+      return { id: document.drive_file_id, name: "test.pdf", mimeType: "application/pdf", sizeBytes: 1000, trashed: false };
+    },
+    async downloadFile() {
+      return { stream: new ReadableStream(), mimeType: "application/pdf", filename: "test.pdf", sizeBytes: 1000 };
+    },
+  };
+
+  const upload = validUpload();
+
+  // Request 1 starts processing
+  const firstPromise = uploadAdminDocument({
+    upload,
+    user: staff,
+    repository: store.repository,
+    drive: slowDrive,
+  });
+
+  // Wait until Request 1 is actively inside the drive upload step
+  while (!uploadStarted) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+
+  // Request 2 arrives while Request 1 is still processing
+  await assert.rejects(
+    () => uploadAdminDocument({
+      upload,
+      user: staff,
+      repository: store.repository,
+      drive: slowDrive,
+    }),
+    (err: unknown) => {
+      assert.ok(err instanceof DocumentUploadError);
+      assert.equal(err.status, 409);
+      assert.equal(err.code, "UPLOAD_IN_PROGRESS");
+      assert.match(err.message, /This upload is already being processed\. Please retry shortly\./);
+      return true;
+    },
+  );
+
+  // Release Request 1 to complete
+  releaseDriveUpload();
+  const firstResult = await firstPromise;
+  assert.equal(firstResult.created, true);
+  assert.equal(firstResult.document.document_id, document.document_id);
+
+  // Verify only 1 Drive file and 1 document were created
+  assert.equal(driveUploadCalls, 1, "Only one Drive upload must be executed across overlapping requests");
+  assert.equal(store.calls.filter((c) => c === "finalize").length, 1, "Finalize must occur exactly once");
+
+  // A subsequent retry after Request 1 finishes receives the existing document without creating another
+  const subsequentResult = await uploadAdminDocument({
+    upload,
+    user: staff,
+    repository: store.repository,
+    drive: slowDrive,
+  });
+  assert.equal(subsequentResult.created, false);
+  assert.equal(subsequentResult.document.document_id, document.document_id);
+  assert.equal(driveUploadCalls, 1, "Drive upload count must remain 1 after completion");
+}));
+
 test("Drive timeout, 429, unavailable, permission, and missing-file diagnostics are classified without exposing provider details", () => {
   assert.equal(classifyDriveError({ code: "ETIMEDOUT" }).kind, "TRANSIENT");
   assert.equal(classifyDriveError({ response: { status: 429 } }).kind, "TRANSIENT");

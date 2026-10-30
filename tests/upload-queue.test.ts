@@ -21,6 +21,28 @@ function createMockFile(name: string, size = 1000): File {
   return new File(["x".repeat(size)], name, { type: "application/pdf" });
 }
 
+function createMockDocument(document_id: string): DocumentRecord {
+  return {
+    document_id,
+    document_number: "MEMO-001",
+    document_type: "MEMORANDUM",
+    filing_year: 2026,
+    filing_subcategory: null,
+    document_date: "2026-10-30",
+    subject: "Test Subject",
+    persons_involved: "Staff",
+    drive_file_id: "drive-123",
+    drive_folder_id: "folder-123",
+    status: "ACTIVE",
+    created_at: new Date().toISOString(),
+    created_by: "user-1",
+    file_name: "test.pdf",
+    mime_type: "application/pdf",
+    file_size_bytes: 1000,
+    file_sha256: null,
+  };
+}
+
 test("upload-queue: enforces max concurrency of 3 and automatically starts next queued item", async () => {
   const activeTransports: Array<{
     options: UploadTransportOptions;
@@ -322,6 +344,108 @@ test("upload-queue: 401 session expiry stops the queue and does not auto-retry",
   // Item 2 must remain QUEUED and not executed
   assert.equal(snap.items[1]!.state, "QUEUED");
   assert.equal(transportCalls, 1, "Queue must not start subsequent items after 401");
+
+  queue.destroy();
+});
+
+test("upload-queue: clear() does not abort items in PROCESSING and leaves them to finish", async () => {
+  let triggerProcessing: () => void = () => {};
+  let finishUpload: (res: { document: DocumentRecord; reused: boolean }) => void = () => {};
+  let abortCalledForP1 = false;
+  let abortCalledForP2 = false;
+
+  const transport = (options: UploadTransportOptions): ActiveUploadHandle => {
+    if (options.file.name === "file-proc.pdf") {
+      return {
+        abort: () => {
+          abortCalledForP1 = true;
+        },
+        promise: new Promise<{ document: DocumentRecord; reused: boolean }>((resolve) => {
+          triggerProcessing = () => {
+            options.onProcessing?.();
+          };
+          finishUpload = (res) => resolve(res);
+        }),
+      };
+    }
+    return {
+      abort: () => {
+        abortCalledForP2 = true;
+      },
+      promise: new Promise<{ document: DocumentRecord; reused: boolean }>(() => {}),
+    };
+  };
+
+  const queue = new UploadQueue({ concurrency: 2, transport });
+
+  queue.enqueue([
+    { localId: "item-proc", file: createMockFile("file-proc.pdf"), metadata: sampleMetadata },
+    { localId: "item-uploading", file: createMockFile("file-uploading.pdf"), metadata: sampleMetadata },
+    { localId: "item-queued", file: createMockFile("file-queued.pdf"), metadata: sampleMetadata },
+  ]);
+
+  // Transition item-proc to PROCESSING
+  triggerProcessing();
+  assert.equal(queue.getSnapshot().items.find((i) => i.localId === "item-proc")?.state, "PROCESSING");
+
+  // Call clear()
+  queue.clear();
+
+  // UPLOADING item was aborted and removed
+  assert.equal(abortCalledForP2, true, "UPLOADING item must have abort invoked on clear");
+  // PROCESSING item was NOT aborted and NOT discarded
+  assert.equal(abortCalledForP1, false, "PROCESSING item must NOT have abort invoked on clear");
+
+  const snapAfterClear = queue.getSnapshot();
+  const processingItem = snapAfterClear.items.find((i) => i.localId === "item-proc");
+  assert.ok(processingItem, "PROCESSING item must remain in queue after clear");
+  assert.equal(processingItem.state, "PROCESSING");
+  assert.equal(snapAfterClear.items.length, 1, "Only PROCESSING item should remain");
+
+  // Allow item-proc to finish
+  finishUpload({ document: createMockDocument("doc-proc-id"), reused: false });
+  await new Promise((r) => setTimeout(r, 10));
+
+  assert.equal(queue.getSnapshot().items[0]?.state, "DONE");
+  assert.equal(queue.getSnapshot().items[0]?.documentId, "doc-proc-id");
+  queue.destroy();
+});
+
+test("upload-queue: processing timeout transitions item to FAILED with safe retry guidance", async () => {
+  let triggerProcessing: () => void = () => {};
+
+  const timeoutTransport = (options: UploadTransportOptions): ActiveUploadHandle => {
+    return {
+      abort: () => {},
+      promise: new Promise<{ document: DocumentRecord; reused: boolean }>((_resolve) => {
+        triggerProcessing = () => {
+          options.onProcessing?.();
+        };
+      }),
+    };
+  };
+
+  const queue = new UploadQueue({
+    concurrency: 1,
+    processingTimeoutMs: 30, // 30ms timeout for test
+    transport: timeoutTransport,
+  });
+
+  queue.enqueue([
+    { localId: "item-slow", file: createMockFile("slow-doc.pdf"), metadata: sampleMetadata },
+  ]);
+
+  triggerProcessing();
+  assert.equal(queue.getSnapshot().items[0]?.state, "PROCESSING");
+
+  // Wait for processing timeout to fire
+  await new Promise((r) => setTimeout(r, 50));
+
+  const snap = queue.getSnapshot();
+  const item = snap.items[0]!;
+  assert.equal(item.state, "FAILED");
+  assert.equal(item.errorCode, "PROCESSING_TIMEOUT");
+  assert.equal(item.error, "Taking longer than expected. Retry is safe.");
 
   queue.destroy();
 });

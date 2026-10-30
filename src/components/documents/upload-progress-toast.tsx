@@ -120,7 +120,7 @@ export function UploadProgressToast() {
 
       {snapshot.isAuthExpired && (
         <div className="upload-toast-auth-alert" role="alert">
-          <span>Session expired. Please sign in to resume uploads.</span>
+          <span>Session expired. Queued files do not survive sign-in; please re-upload after signing in.</span>
           <Link href="/login" className="upload-toast-auth-link">
             Sign in
           </Link>
