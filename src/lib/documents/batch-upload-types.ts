@@ -12,6 +12,8 @@ export function canSelectBatchFiles(existingCount: number, incomingCount: number
 
 export type BatchUploadStatus = "QUEUED" | "NEEDS_METADATA" | "READY" | "UPLOADING" | "IN_PROGRESS" | "UPLOADED" | "FAILED" | "INVALID_FILE" | "CANCELLED";
 
+export type BatchUploadMetadata = AdminDocumentMetadata;
+
 export type BatchUploadItem = {
   localId: string;
   file: File;

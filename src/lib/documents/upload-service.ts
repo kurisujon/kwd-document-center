@@ -239,7 +239,13 @@ export async function uploadAdminDocument(input: {
           if (failureError instanceof DocumentUploadError) throw failureError;
         }
       }
-      throw new DocumentUploadError("DRIVE_ERROR", "Google Drive upload recovery is pending. Retry this submission with the same idempotency key.", error.kind === "FORBIDDEN" ? 502 : 503);
+      if (error.kind === "FORBIDDEN") {
+        const message = input.user.role === "ADMIN"
+          ? "Google Drive authorization has expired. Please re-authorize Google Drive in Admin settings."
+          : "Google Drive storage connection has expired. Please contact an administrator.";
+        throw new DocumentUploadError("DRIVE_ERROR", message, 502);
+      }
+      throw new DocumentUploadError("DRIVE_ERROR", "Google Drive upload recovery is pending. Retry this submission with the same idempotency key.", 503);
     }
     logOperationalFailure({ operation: "documents.upload.state", outcome: "failure", category: "UPLOAD_STATE_SAVE_FAILED", status: 500, resourceId: attempt.id });
     throw new DocumentUploadError("REGISTRY_ERROR", "The file upload state could not be saved. Please contact an administrator before retrying.", 500);
@@ -337,7 +343,13 @@ export async function uploadFolderDocument(input: {
           return { document, created: false };
         }
       }
-      throw new DocumentUploadError("DRIVE_ERROR", "Google Drive upload recovery is pending. Retry this submission with the same idempotency key.", error.kind === "FORBIDDEN" ? 502 : 503);
+      if (error.kind === "FORBIDDEN") {
+        const message = input.user.role === "ADMIN"
+          ? "Google Drive authorization has expired. Please re-authorize Google Drive in Admin settings."
+          : "Google Drive storage connection has expired. Please contact an administrator.";
+        throw new DocumentUploadError("DRIVE_ERROR", message, 502);
+      }
+      throw new DocumentUploadError("DRIVE_ERROR", "Google Drive upload recovery is pending. Retry this submission with the same idempotency key.", 503);
     }
     throw new DocumentUploadError("REGISTRY_ERROR", "The file upload state could not be saved. Please contact an administrator before retrying.", 500);
   }

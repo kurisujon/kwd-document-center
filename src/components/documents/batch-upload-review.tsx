@@ -8,8 +8,17 @@ import { adminUploadAccept } from "@/lib/documents/upload-formats";
 import { UploadDropzone } from "./upload-dropzone";
 import { PageWideDropTarget } from "./page-wide-drop-target";
 import { stagedUploadStore } from "@/lib/documents/staged-upload-store";
+import { useUploadQueue } from "./upload-queue-provider";
 
 type Props = { categories: readonly AdminCategory[]; maxBytes: number };
+
+function useSafeUploadQueue() {
+  try {
+    return useUploadQueue();
+  } catch {
+    return null;
+  }
+}
 
 function defaultValues(category: AdminCategory): BatchUploadDefaults {
   return { document_type: category, filing_year: categoryUsesYear(category) ? new Date().getFullYear() : null, filing_subcategory: adminSubcategories[category]?.[0] ?? "", document_date: "", persons_involved: "" };
@@ -35,6 +44,28 @@ export function BatchUploadReview({ categories, maxBytes }: Props) {
   const [uploading, setUploading] = useState(false);
   const [selectionError, setSelectionError] = useState<string | undefined>(() => initialData.message);
   const queueGuard = useRef(createBatchUploadRunGuard());
+  const uploadQueue = useSafeUploadQueue();
+  const queueItems = uploadQueue?.items;
+
+  const displayItems = useMemo(() => {
+    if (!queueItems?.length) return items;
+    const queueMap = new Map(queueItems.map((i) => [i.localId, i]));
+    return items.map((item) => {
+      const qItem = queueMap.get(item.localId);
+      if (!qItem) return item;
+      let newStatus = item.status;
+      if (qItem.state === "UPLOADING" || qItem.state === "PROCESSING") newStatus = "UPLOADING";
+      else if (qItem.state === "DONE") newStatus = "UPLOADED";
+      else if (qItem.state === "FAILED") newStatus = "FAILED";
+      else if (qItem.state === "CANCELLED") newStatus = "CANCELLED";
+      return {
+        ...item,
+        status: newStatus,
+        error: qItem.error ?? item.error,
+        documentId: qItem.documentId ?? item.documentId,
+      };
+    });
+  }, [items, queueItems]);
 
   useEffect(() => {
     // Clear the staged store after initial mount consumption so subsequent visits start clean
@@ -44,11 +75,11 @@ export function BatchUploadReview({ categories, maxBytes }: Props) {
   }, []);
 
   const counts = useMemo(() => ({
-    ready: items.filter((item) => item.status === "READY").length,
-    active: items.filter((item) => item.status === "UPLOADING").length,
-    uploaded: items.filter((item) => item.status === "UPLOADED").length,
-    failed: items.filter((item) => item.status === "FAILED").length,
-  }), [items]);
+    ready: displayItems.filter((item) => item.status === "READY").length,
+    active: displayItems.filter((item) => item.status === "UPLOADING").length,
+    uploaded: displayItems.filter((item) => item.status === "UPLOADED").length,
+    failed: displayItems.filter((item) => item.status === "FAILED").length,
+  }), [displayItems]);
 
   useEffect(() => {
     if (!counts.active) return;
@@ -113,7 +144,21 @@ export function BatchUploadReview({ categories, maxBytes }: Props) {
   }
 
   async function startQueue(source = items) {
-    if (uploading || !source.some((item) => item.status === "READY")) return;
+    const readyItems = source.filter((item) => item.status === "READY");
+    if (uploading || !readyItems.length) return;
+
+    if (uploadQueue) {
+      uploadQueue.enqueue(
+        readyItems.map((item) => ({
+          localId: item.localId,
+          file: item.file,
+          metadata: item.metadata,
+          idempotencyKey: item.idempotencyKey,
+        })),
+      );
+      return;
+    }
+
     await queueGuard.current.run(async () => {
       setUploading(true);
       try {
@@ -133,12 +178,16 @@ export function BatchUploadReview({ categories, maxBytes }: Props) {
 
   function retryFailed() {
     if (uploading) return;
+    if (uploadQueue) {
+      uploadQueue.retryAllFailed();
+      return;
+    }
     const retry = prepareFailedBatchRetry(items, maxBytes);
     setItems(retry.items);
     void startQueue(retry.candidates);
   }
 
-  const allSelectable = items.filter(isBatchItemEditable);
+  const allSelectable = displayItems.filter(isBatchItemEditable);
   const allSelected = allSelectable.length > 0 && allSelectable.every((item) => selected.has(item.localId));
 
   return <section className="batch-upload" aria-labelledby="batch-upload-title">
@@ -169,7 +218,7 @@ export function BatchUploadReview({ categories, maxBytes }: Props) {
       </fieldset>
     </div>
     {selectionError && <p className="form-error" role="alert">{selectionError}</p>}
-    {items.length > 0 && <>
+    {displayItems.length > 0 && <>
       <section className="batch-actions" aria-label="Bulk metadata actions">
         <label><input type="checkbox" checked={allSelected} disabled={uploading || !allSelectable.length} onChange={(event) => setSelected(event.target.checked ? selectAllEditableBatchItems(items) : new Set())} /> Select all editable rows</label>
         <label>Set date<input type="date" value={bulkDate} disabled={uploading} onChange={(event) => setBulkDate(event.target.value)} /></label><button className="button button-secondary" type="button" disabled={uploading || !selected.size || !bulkDate} onClick={() => applyToSelected((item) => ({ ...item, metadata: { ...item.metadata, document_date: bulkDate } }))}>Apply date</button>
@@ -177,7 +226,7 @@ export function BatchUploadReview({ categories, maxBytes }: Props) {
         <button className="button button-secondary" type="button" disabled={uploading || !selected.size} onClick={applyDefaults}>Apply common defaults</button><button className="button button-secondary" type="button" disabled={uploading || !selected.size} onClick={() => applyToSelected((item) => ({ ...item, metadata: { ...item.metadata, persons_involved: "" } }))}>Clear persons</button>
       </section>
       <p className="batch-summary" role="status" aria-live="polite">Ready: {counts.ready} · Uploading: {counts.active} · Uploaded: {counts.uploaded} · Failed: {counts.failed}</p>
-      <section className="table-wrap batch-table-wrap" aria-label="Bulk metadata review"><table className="batch-table"><thead><tr><th scope="col"><span className="sr-only">Select</span></th><th scope="col">File</th><th scope="col">Document metadata</th><th scope="col">Destination</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead><tbody>{items.map((item) => <BatchUploadRow key={item.localId} item={item} categories={categories} checked={selected.has(item.localId)} disabled={uploading} onSelect={toggleRow} onChange={replaceItem} onRemove={() => { const next = removeEditableBatchItem(items, selected, item.localId); setItems(next.items); setSelected(next.selected); }} />)}</tbody></table></section>
+      <section className="table-wrap batch-table-wrap" aria-label="Bulk metadata review"><table className="batch-table"><thead><tr><th scope="col"><span className="sr-only">Select</span></th><th scope="col">File</th><th scope="col">Document metadata</th><th scope="col">Destination</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead><tbody>{displayItems.map((item) => <BatchUploadRow key={item.localId} item={item} categories={categories} checked={selected.has(item.localId)} disabled={uploading} onSelect={toggleRow} onChange={replaceItem} onRemove={() => { const next = removeEditableBatchItem(items, selected, item.localId); setItems(next.items); setSelected(next.selected); }} />)}</tbody></table></section>
       <div className="form-actions batch-submit-actions"><button className="button button-primary" type="button" disabled={uploading || !counts.ready} onClick={() => void startQueue()}>{uploading ? "Uploading ready files…" : `Upload ready files (${counts.ready})`}</button>{counts.failed > 0 && <button className="button button-secondary" type="button" disabled={uploading} onClick={retryFailed}>Retry failed ({counts.failed})</button>}</div>
     </>}
   </section>;

@@ -575,6 +575,41 @@ test("Drive permission and transient upload failures return safe errors", async 
   }
 }));
 
+test("expired Google token shows admin-only guidance without exposing token or secret details", async () => withFolderMap(async () => {
+  const adminUser: AuthorizedUser = { ...staff, id: "44444444-4444-4444-8444-444444444444", role: "ADMIN" };
+  const storeAdmin = mockRepository();
+  const forbiddenError = new DriveServiceError("FORBIDDEN");
+
+  // Admin user receives admin re-authorization guidance
+  await assert.rejects(
+    () => uploadAdminDocument({ upload: validUpload(), user: adminUser, repository: storeAdmin.repository, drive: mockDrive(forbiddenError).service }),
+    (error: unknown) => {
+      assert.ok(error instanceof DocumentUploadError);
+      assert.equal(error.code, "DRIVE_ERROR");
+      assert.equal(error.status, 502);
+      assert.match(error.message, /re-authorize.*Admin/i);
+      // Ensure zero token, client ID, or secret details are leaked
+      assert.doesNotMatch(error.message, /token|refresh|secret|client_id|oauth/i);
+      return true;
+    },
+  );
+
+  // Staff (non-admin) receives plain message to contact administrator without action links or token details
+  const storeStaff = mockRepository();
+  await assert.rejects(
+    () => uploadAdminDocument({ upload: validUpload(), user: staff, repository: storeStaff.repository, drive: mockDrive(forbiddenError).service }),
+    (error: unknown) => {
+      assert.ok(error instanceof DocumentUploadError);
+      assert.equal(error.code, "DRIVE_ERROR");
+      assert.equal(error.status, 502);
+      assert.match(error.message, /contact an administrator/i);
+      // Must not link to admin setup or leak tokens
+      assert.doesNotMatch(error.message, /admin settings|drive-setup|token|refresh|secret/i);
+      return true;
+    },
+  );
+}));
+
 test("Drive timeout, 429, unavailable, permission, and missing-file diagnostics are classified without exposing provider details", () => {
   assert.equal(classifyDriveError({ code: "ETIMEDOUT" }).kind, "TRANSIENT");
   assert.equal(classifyDriveError({ response: { status: 429 } }).kind, "TRANSIENT");
