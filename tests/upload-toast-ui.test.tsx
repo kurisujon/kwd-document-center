@@ -129,10 +129,21 @@ test("upload-toast-ui: shows admin-only re-authorize link for admins when Google
   adminUi.unmount();
 
   // Render with STAFF user (non-admin)
+  const staffQueue = new UploadQueue({
+    transport: () => ({ abort: () => {}, promise: Promise.reject(new Error("Google Drive storage connection has expired.")) }),
+  });
+  staffQueue.enqueue([
+    { localId: "exp-2", file: new File(["data"], "auth-expired-staff.pdf", { type: "application/pdf" }), metadata: sampleMetadata },
+  ]);
+  const staffItem = staffQueue.getSnapshot().items[0]!;
+  staffItem.state = "FAILED";
+  staffItem.isGoogleAuthExpired = true;
+  staffItem.error = "Google Drive authorization has expired. Please contact an administrator.";
+
   const staffUi = render(
     React.createElement(
       UploadQueueProvider,
-      { user: staffUser, queue },
+      { user: staffUser, queue: staffQueue },
       React.createElement("div", null, "Staff Workspace"),
     ),
   );
@@ -142,6 +153,7 @@ test("upload-toast-ui: shows admin-only re-authorize link for admins when Google
   assert.ok(staffUi.getAllByText(/Google Drive authorization has expired/).length > 0);
   staffUi.unmount();
   queue.destroy();
+  staffQueue.destroy();
 });
 
 test("upload-toast-ui: disables cancel during PROCESSING and displays Saving badge", () => {
@@ -204,6 +216,42 @@ test("upload-toast-ui: shows session expired banner and sign in link when auth e
   assert.ok(signInLink);
   assert.equal(signInLink.getAttribute("href"), "/login");
   assert.ok(ui.getByText("Session expired. Queued files do not survive sign-in; please re-upload after signing in."));
+  ui.unmount();
+  queue.destroy();
+});
+
+test("upload-toast-ui: shows Still saving status and Check status button when upload is in progress", () => {
+  const queue = new UploadQueue({
+    transport: () => ({
+      abort: () => {},
+      promise: new Promise(() => {}),
+    }),
+  });
+
+  queue.enqueue([
+    { localId: "item-inprogress", file: new File(["data"], "saving-item.pdf", { type: "application/pdf" }), metadata: sampleMetadata },
+  ]);
+
+  const item = queue.getSnapshot().items[0]!;
+  item.state = "FAILED";
+  item.errorCode = "UPLOAD_IN_PROGRESS";
+  item.error = "Upload is still saving on the server. Retry shortly to check status.";
+
+  const ui = render(
+    React.createElement(
+      UploadQueueProvider,
+      { user: staffUser, queue },
+      React.createElement("div", null, "Staff Workspace"),
+    ),
+  );
+
+  // Status text should say Still saving on server…
+  assert.ok(ui.getByText("Still saving on server…"));
+  // Action button should be labeled Check status
+  const checkStatusBtn = ui.getByRole("button", { name: "Check status of saving-item.pdf" });
+  assert.ok(checkStatusBtn);
+  assert.equal(checkStatusBtn.textContent, "Check status");
+
   ui.unmount();
   queue.destroy();
 });

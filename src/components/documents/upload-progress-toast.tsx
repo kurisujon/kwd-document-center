@@ -23,6 +23,9 @@ function itemStatusText(item: UploadQueueItem): string {
     case "DONE":
       return "Uploaded";
     case "FAILED":
+      if (item.errorCode === "UPLOAD_IN_PROGRESS") {
+        return "Still saving on server…";
+      }
       return item.error ?? "Failed";
     case "CANCELLED":
       return "Cancelled";
@@ -199,10 +202,10 @@ export function UploadProgressToast() {
                       <button
                         type="button"
                         className="upload-toast-action-btn upload-toast-retry-btn"
-                        aria-label={`Retry upload of ${item.file.name}`}
+                        aria-label={`${item.errorCode === "UPLOAD_IN_PROGRESS" ? "Check status" : "Retry upload"} of ${item.file.name}`}
                         onClick={() => retryItem(item.localId)}
                       >
-                        Retry
+                        {item.errorCode === "UPLOAD_IN_PROGRESS" ? "Check status" : "Retry"}
                       </button>
                     )}
                   </div>

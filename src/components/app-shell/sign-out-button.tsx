@@ -1,11 +1,8 @@
 "use client";
-import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { sharedUploadQueue } from "@/lib/documents/upload-queue";
 
 export function SignOutButton() {
-  const router = useRouter();
-
   async function signOut() {
     if (sharedUploadQueue.getSnapshot().hasActive) {
       const confirmSignOut = window.confirm(
@@ -14,9 +11,10 @@ export function SignOutButton() {
       if (!confirmSignOut) return;
       sharedUploadQueue.clear();
     }
+    sharedUploadQueue.setActiveUser(null);
     await createClient().auth.signOut();
-    router.replace("/login");
-    router.refresh();
+    // Force a full page navigation to clear client in-memory state
+    window.location.href = "/login";
   }
 
   return (

@@ -449,3 +449,99 @@ test("upload-queue: processing timeout transitions item to FAILED with safe retr
 
   queue.destroy();
 });
+
+test("upload-queue: queue isolates items per user and drops processing items finishing after user switch or sign out", async () => {
+  let triggerProcessing: () => void = () => {};
+  let finishUpload: (res: { document: DocumentRecord; reused: boolean }) => void = () => {};
+
+  const transport = (options: UploadTransportOptions): ActiveUploadHandle => {
+    return {
+      abort: () => {},
+      promise: new Promise<{ document: DocumentRecord; reused: boolean }>((resolve) => {
+        triggerProcessing = () => {
+          options.onProcessing?.();
+        };
+        finishUpload = (res) => resolve(res);
+      }),
+    };
+  };
+
+  const queue = new UploadQueue({ concurrency: 1, transport });
+
+  // User A logs in and enqueues a confidential document
+  queue.setActiveUser("user-a-uuid");
+  queue.enqueue([
+    { localId: "user-a-doc", file: createMockFile("confidential-a.pdf"), metadata: sampleMetadata },
+  ]);
+
+  triggerProcessing();
+  assert.equal(queue.getSnapshot().items[0]?.file.name, "confidential-a.pdf");
+  assert.equal(queue.getSnapshot().items[0]?.state, "PROCESSING");
+
+  // User A signs out: active user set to null
+  queue.setActiveUser(null);
+  // While signed out, the item is retained only in internal memory so it completes on server
+  assert.equal(queue.getSnapshot().items.length, 1);
+
+  // User B logs in
+  queue.setActiveUser("user-b-uuid");
+  // User B's queue snapshot must NOT contain User A's confidential file!
+  assert.equal(queue.getSnapshot().items.length, 0, "User B must never see User A's files");
+
+  // Now User A's background upload completes in Google Drive
+  finishUpload({ document: createMockDocument("doc-a-id"), reused: false });
+  await new Promise((r) => setTimeout(r, 10));
+
+  // Verify User A's completed item was dropped and NOT displayed in User B's queue
+  const snapAfterFinish = queue.getSnapshot();
+  assert.equal(snapAfterFinish.items.length, 0, "Finished item for prior user must be dropped, not shown");
+
+  queue.destroy();
+});
+
+test("upload-queue: 409 UPLOAD_IN_PROGRESS shows still-saving status and allows check-status retry", async () => {
+  let attemptCount = 0;
+  const inProgressTransport = (_options: UploadTransportOptions): ActiveUploadHandle => {
+    attemptCount += 1;
+    if (attemptCount === 1) {
+      return {
+        abort: () => {},
+        promise: Promise.reject(
+          new UploadTransportError("This upload is already being processed. Please retry shortly.", 409, "UPLOAD_IN_PROGRESS"),
+        ),
+      };
+    }
+    return {
+      abort: () => {},
+      promise: Promise.resolve({
+        document: createMockDocument("doc-retry-complete"),
+        reused: true,
+      }),
+    };
+  };
+
+  const queue = new UploadQueue({ concurrency: 1, transport: inProgressTransport });
+  queue.enqueue([
+    { localId: "item-conflict", file: createMockFile("concurrent.pdf"), metadata: sampleMetadata },
+  ]);
+
+  await new Promise((r) => setTimeout(r, 10));
+
+  // Item should be in FAILED state with UPLOAD_IN_PROGRESS code and honest still-saving message
+  const snap1 = queue.getSnapshot();
+  const item = snap1.items[0]!;
+  assert.equal(item.state, "FAILED");
+  assert.equal(item.errorCode, "UPLOAD_IN_PROGRESS");
+  assert.equal(item.error, "Upload is still saving on the server. Retry shortly to check status.");
+
+  // Retry / Check status
+  queue.retryItem("item-conflict");
+  await new Promise((r) => setTimeout(r, 10));
+
+  // Should succeed and transition to DONE
+  const snap2 = queue.getSnapshot();
+  assert.equal(snap2.items[0]!.state, "DONE");
+  assert.equal(snap2.items[0]!.documentId, "doc-retry-complete");
+
+  queue.destroy();
+});

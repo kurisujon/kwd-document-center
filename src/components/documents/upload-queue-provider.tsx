@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useMemo, useState, useSyncExternalStore } from "react";
+import React, { createContext, useContext, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { AuthorizedUser } from "@/lib/auth/types";
 import {
   sharedUploadQueue,
@@ -49,6 +49,10 @@ export function UploadQueueProvider({
     () => queue.getSnapshot(),
     () => queue.getSnapshot(),
   );
+
+  useEffect(() => {
+    queue.setActiveUser(user?.id ?? null);
+  }, [queue, user?.id]);
 
   const [isMinimized, setIsMinimized] = useState(false);
   const [isDismissed, setIsDismissed] = useState(false);

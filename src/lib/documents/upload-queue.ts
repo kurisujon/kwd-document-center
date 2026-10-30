@@ -43,6 +43,7 @@ export interface UploadQueueItem {
   documentUrl?: string;
   retryCount: number;
   abortHandle?: () => void;
+  userId?: string;
 }
 
 export interface QueueSnapshot {
@@ -79,6 +80,7 @@ export class UploadQueue {
   private readonly concurrency: number;
   private readonly transport: typeof startDocumentUpload;
   private readonly processingTimeoutMs: number;
+  private currentUserId: string | null = null;
   private isPaused = false;
   private isAuthExpired = false;
   private beforeUnloadRegistered = false;
@@ -174,6 +176,38 @@ export class UploadQueue {
     this.isPaused = true;
   };
 
+  setActiveUser(userId: string | null): void {
+    if (this.currentUserId === userId) return;
+    const isUserSwitch = this.currentUserId !== null && userId !== this.currentUserId;
+    this.currentUserId = userId;
+
+    if (isUserSwitch) {
+      // Abort active transfers and cancel pending queues from the prior user
+      for (const item of this.items) {
+        if (item.state === "QUEUED" || item.state === "UPLOADING") {
+          if (item.abortHandle) {
+            item.abortHandle();
+            item.abortHandle = undefined;
+          }
+          item.state = "CANCELLED";
+        }
+      }
+    }
+
+    // Isolate queue per user: keep only processing items in flight so they commit on server,
+    // but filter prior user items from this user's view
+    if (userId === null) {
+      this.items = this.items.filter((i) => i.state === "PROCESSING");
+    } else {
+      this.items = this.items.filter((i) => !i.userId || i.userId === userId);
+      for (const item of this.items) {
+        if (!item.userId) item.userId = userId;
+      }
+    }
+
+    this.emitChange();
+  }
+
   enqueue(inputs: EnqueueItemInput[]): void {
     if (!inputs.length) return;
 
@@ -188,6 +222,7 @@ export class UploadQueue {
         idempotencyKey,
         targetFolderId: input.targetFolderId,
         sourceRelativePath: input.sourceRelativePath,
+        userId: this.currentUserId ?? undefined,
         state: "QUEUED",
         bytesSent: 0,
         totalBytes: input.file.size,
@@ -386,6 +421,12 @@ export class UploadQueue {
     handle.promise
       .then((result) => {
         clearProcessingTimer();
+        // If the active user has changed since this item started, drop it immediately so it is never displayed
+        if ((item.userId && this.currentUserId !== null && item.userId !== this.currentUserId) || (this.currentUserId === null && item.userId)) {
+          this.items = this.items.filter((i) => i.localId !== item.localId);
+          this.emitChange();
+          return;
+        }
         if (item.state === "CANCELLED") return;
         item.state = "DONE";
         item.bytesSent = item.totalBytes;
@@ -398,6 +439,11 @@ export class UploadQueue {
       })
       .catch((err: unknown) => {
         clearProcessingTimer();
+        if ((item.userId && this.currentUserId !== null && item.userId !== this.currentUserId) || (this.currentUserId === null && item.userId)) {
+          this.items = this.items.filter((i) => i.localId !== item.localId);
+          this.emitChange();
+          return;
+        }
         if (item.state === "CANCELLED") return;
 
         item.state = "FAILED";
@@ -406,6 +452,13 @@ export class UploadQueue {
         if (err instanceof UploadTransportError) {
           if (err.isAborted) {
             item.state = "CANCELLED";
+            this.emitChange();
+            this.processQueue();
+            return;
+          }
+          if (err.code === "UPLOAD_IN_PROGRESS" || err.status === 409) {
+            item.errorCode = "UPLOAD_IN_PROGRESS";
+            item.error = "Upload is still saving on the server. Retry shortly to check status.";
             this.emitChange();
             this.processQueue();
             return;
