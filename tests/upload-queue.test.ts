@@ -545,3 +545,93 @@ test("upload-queue: 409 UPLOAD_IN_PROGRESS shows still-saving status and allows 
 
   queue.destroy();
 });
+
+test("upload-queue: momentary null user during hydration/refresh keeps queue intact when same user returns", async () => {
+  let resolvePromise = () => {};
+  const manualTransport = (_options: UploadTransportOptions): ActiveUploadHandle => {
+    return {
+      abort: () => {},
+      promise: new Promise<{ document: DocumentRecord; reused: boolean }>((resolve) => {
+        resolvePromise = () => resolve({ document: createMockDocument("doc-1"), reused: false });
+      }),
+    };
+  };
+
+  const queue = new UploadQueue({ concurrency: 1, transport: manualTransport });
+
+  // User A logs in and has queued/uploading items
+  queue.setActiveUser("user-hydration-test");
+  queue.enqueue([
+    { localId: "doc-1", file: createMockFile("file-1.pdf"), metadata: sampleMetadata },
+    { localId: "doc-2", file: createMockFile("file-2.pdf"), metadata: sampleMetadata },
+  ]);
+
+  const snapBefore = queue.getSnapshot();
+  assert.equal(snapBefore.items.length, 2);
+  assert.equal(snapBefore.items[0]?.state, "UPLOADING");
+  assert.equal(snapBefore.items[1]?.state, "QUEUED");
+
+  // React re-hydration or session token refresh triggers temporary null user
+  queue.setActiveUser(null);
+
+  // Queue must NOT be wiped or dropped
+  const snapDuringNull = queue.getSnapshot();
+  assert.equal(snapDuringNull.items.length, 2, "Items must not be discarded during momentary null user state");
+  assert.equal(snapDuringNull.items[0]?.localId, "doc-1");
+  assert.equal(snapDuringNull.items[1]?.localId, "doc-2");
+
+  // Same user returns after session refresh completes
+  queue.setActiveUser("user-hydration-test");
+
+  const snapAfterReturn = queue.getSnapshot();
+  assert.equal(snapAfterReturn.items.length, 2, "Queue must remain completely intact when same user returns");
+  assert.equal(snapAfterReturn.items[0]?.state, "UPLOADING");
+  assert.equal(snapAfterReturn.items[1]?.state, "QUEUED");
+
+  // Resolve pending promise and cleanup
+  resolvePromise();
+  queue.destroy();
+});
+
+test("upload-queue: repeated 409 UPLOAD_IN_PROGRESS beyond limit informs staff to contact administrator", async () => {
+  const recurring409Transport = (_options: UploadTransportOptions): ActiveUploadHandle => {
+    return {
+      abort: () => {},
+      promise: Promise.reject(
+        new UploadTransportError("This upload is already being processed. Please retry shortly.", 409, "UPLOAD_IN_PROGRESS"),
+      ),
+    };
+  };
+
+  const queue = new UploadQueue({ concurrency: 1, transport: recurring409Transport });
+  queue.enqueue([
+    { localId: "item-stuck", file: createMockFile("stuck.pdf"), metadata: sampleMetadata },
+  ]);
+
+  // Initial attempt: retryCount 0
+  await new Promise((r) => setTimeout(r, 10));
+  let item = queue.getSnapshot().items[0]!;
+  assert.equal(item.state, "FAILED");
+  assert.equal(item.errorCode, "UPLOAD_IN_PROGRESS");
+  assert.equal(item.error, "Upload is still saving on the server. Retry shortly to check status.");
+
+  // Retry 1 (retryCount becomes 1)
+  queue.retryItem("item-stuck");
+  await new Promise((r) => setTimeout(r, 10));
+  item = queue.getSnapshot().items[0]!;
+  assert.equal(item.error, "Upload is still saving on the server. Retry shortly to check status.");
+
+  // Retry 2 (retryCount becomes 2)
+  queue.retryItem("item-stuck");
+  await new Promise((r) => setTimeout(r, 10));
+  item = queue.getSnapshot().items[0]!;
+  assert.equal(item.error, "Upload is still saving on the server. Retry shortly to check status.");
+
+  // Retry 3 (retryCount becomes 3 -> reaches stale limit)
+  queue.retryItem("item-stuck");
+  await new Promise((r) => setTimeout(r, 10));
+  item = queue.getSnapshot().items[0]!;
+  assert.equal(item.error, "Upload is taking longer than expected. Please contact an administrator.");
+
+  queue.destroy();
+});

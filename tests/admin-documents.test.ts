@@ -230,6 +230,7 @@ function mockRepository(options: { existing?: UploadAttempt | null; failFinalize
   return {
     calls,
     current: () => attempt,
+    setAttempt: (next: UploadAttempt | null) => { attempt = next; },
     repository: {
       async findByIdempotencyKey() { calls.push("find"); return attempt; },
       async create(key: string, creatorId: string, metadata: UploadMetadataSnapshot) {
@@ -262,19 +263,36 @@ function mockRepository(options: { existing?: UploadAttempt | null; failFinalize
           attempt = { ...attempt, operation_token: null, reservation_expires_at: null };
         }
       },
-      async persistDriveFileId(_id: string, driveFileId: string, expectedOperationToken: string) {
+      async persistDriveFileId(_id: string, driveFileId: string, expectedOperationToken: string, leaseDurationMs = 120_000) {
         calls.push("persist");
         if (!attempt || attempt.status !== "PENDING_UPLOAD" || attempt.operation_token !== expectedOperationToken || attempt.drive_file_id !== null) return false;
-        attempt = { ...attempt, status: "UPLOADING", drive_file_id: driveFileId, reservation_expires_at: null };
+        const expiresAt = new Date(Date.now() + leaseDurationMs).toISOString();
+        attempt = { ...attempt, status: "UPLOADING", drive_file_id: driveFileId, reservation_expires_at: expiresAt };
         return true;
       },
-      async resumeUpload() {
+      async resumeUpload(_id: string, leaseDurationMs = 120_000) {
         calls.push("resume");
         if (!attempt || attempt.status !== "FAILED") return { resumed: false, operationToken: null };
         tokenCounter += 1;
         const operationToken = `token-${tokenCounter}`;
-        attempt = { ...attempt, status: "UPLOADING", operation_token: operationToken, reservation_expires_at: null };
+        const expiresAt = new Date(Date.now() + leaseDurationMs).toISOString();
+        attempt = { ...attempt, status: "UPLOADING", operation_token: operationToken, reservation_expires_at: expiresAt };
         return { resumed: true, operationToken };
+      },
+      async reclaimExpiredUploadingAttempt(_id: string, leaseDurationMs = 120_000) {
+        calls.push("reclaim_uploading");
+        const now = Date.now();
+        const isExpired = attempt?.reservation_expires_at
+          ? new Date(attempt.reservation_expires_at).getTime() <= now
+          : false;
+        if (!attempt || attempt.status !== "UPLOADING" || attempt.drive_file_id === null || !isExpired) {
+          return { reclaimed: false, operationToken: null };
+        }
+        tokenCounter += 1;
+        const operationToken = `token-${tokenCounter}`;
+        const expiresAt = new Date(now + leaseDurationMs).toISOString();
+        attempt = { ...attempt, operation_token: operationToken, reservation_expires_at: expiresAt };
+        return { reclaimed: true, operationToken };
       },
       async recoverInterruptedUploadToFailed(_id: string, expectedDriveFileId: string, expectedOperationToken: string) {
         calls.push("recover");
@@ -1028,17 +1046,30 @@ test("Request B stale 409/markFailed cannot regress Request A PENDING_REGISTRY o
         attempt = { ...attempt, operation_token: null, reservation_expires_at: null };
       }
     },
-    async persistDriveFileId(_id: string, driveFileId: string, expectedOperationToken: string) {
+    async persistDriveFileId(_id: string, driveFileId: string, expectedOperationToken: string, leaseDurationMs = 120_000) {
       if (!attempt || attempt.status !== "PENDING_UPLOAD" || attempt.operation_token !== expectedOperationToken || attempt.drive_file_id !== null) return false;
-      attempt = { ...attempt, status: "UPLOADING", drive_file_id: driveFileId, reservation_expires_at: null };
+      attempt = { ...attempt, status: "UPLOADING", drive_file_id: driveFileId, reservation_expires_at: new Date(Date.now() + leaseDurationMs).toISOString() };
       return true;
     },
-    async resumeUpload() {
+    async resumeUpload(_id: string, leaseDurationMs = 120_000) {
       if (!attempt || attempt.status !== "FAILED") return { resumed: false, operationToken: null };
       tokenCounter += 1;
       const operationToken = `token-${tokenCounter}`;
-      attempt = { ...attempt, status: "UPLOADING", operation_token: operationToken, reservation_expires_at: null };
+      attempt = { ...attempt, status: "UPLOADING", operation_token: operationToken, reservation_expires_at: new Date(Date.now() + leaseDurationMs).toISOString() };
       return { resumed: true, operationToken };
+    },
+    async reclaimExpiredUploadingAttempt(_id: string, leaseDurationMs = 120_000) {
+      const now = Date.now();
+      const isExpired = attempt?.reservation_expires_at
+        ? new Date(attempt.reservation_expires_at).getTime() <= now
+        : false;
+      if (!attempt || attempt.status !== "UPLOADING" || attempt.drive_file_id === null || !isExpired) {
+        return { reclaimed: false, operationToken: null };
+      }
+      tokenCounter += 1;
+      const operationToken = `token-${tokenCounter}`;
+      attempt = { ...attempt, operation_token: operationToken, reservation_expires_at: new Date(now + leaseDurationMs).toISOString() };
+      return { reclaimed: true, operationToken };
     },
     async markPendingRegistry(_id: string, driveFileId: string, expectedOperationToken: string) {
       if (!attempt || attempt.status !== "UPLOADING" || attempt.drive_file_id !== driveFileId || attempt.operation_token !== expectedOperationToken) return false;
@@ -1301,4 +1332,74 @@ test("generateIds success + persistence failure: stale owner cannot overwrite ne
   assert.equal(persistResult, false, "stale owner persistence must fail");
   assert.equal(store.current()?.drive_file_id, driveIdB, "persisted Drive ID B cannot be replaced");
   assert.equal(store.current()?.operation_token, "token-caller-b", "newer owner token remains authoritative");
+}));
+
+test("server crash mid-upload leaving row in UPLOADING: retry while lease active returns 409, retry after lease expires automatically recovers to exactly one document and one Drive file", async () => withFolderMap(async () => {
+  const upload = validUpload();
+  const existingDriveId = document.drive_file_id!;
+  let generateFileIdCount = 0;
+  let uploadCallCount = 0;
+  const driveService: DriveService = {
+    async generateFileId() {
+      generateFileIdCount += 1;
+      return "new_unexpected_drive_id";
+    },
+    async upload(input: { fileId: string }) {
+      uploadCallCount += 1;
+      assert.equal(input.fileId, existingDriveId, "must upload to the previously reserved Drive file ID");
+      return { id: existingDriveId, name: document.file_name!, mimeType: document.file_type!, trashed: false, webViewLink: document.drive_url! };
+    },
+    async getMetadata() { throw new Error("not used"); },
+    async download() { throw new Error("not used"); },
+  };
+
+  // Row was left in UPLOADING by a server worker that crashed mid-upload with a lease
+  const store = mockRepository({
+    existing: {
+      id: "33333333-3333-4333-8333-333333333333",
+      idempotency_key: upload.idempotencyKey,
+      status: "UPLOADING",
+      drive_file_id: existingDriveId,
+      operation_token: "crashed-worker-token",
+      reservation_expires_at: new Date(Date.now() + 110_000).toISOString(),
+      metadata_snapshot: snapshot(upload),
+      document_id: null,
+      created_by: staff.id,
+      safe_error_code: null,
+    },
+  });
+
+  // Attempt 1: Immediate retry while lease is still active -> must return 409 UPLOAD_IN_PROGRESS
+  await assert.rejects(
+    () => uploadAdminDocument({ upload, user: staff, repository: store.repository, drive: driveService }),
+    (error: unknown) => {
+      assert.ok(error instanceof DocumentUploadError);
+      assert.equal(error.status, 409);
+      assert.equal(error.code, "UPLOAD_IN_PROGRESS");
+      return true;
+    },
+  );
+  assert.equal(uploadCallCount, 0, "no Drive upload while lease is active");
+  assert.equal(generateFileIdCount, 0, "no new Drive ID generated");
+
+  // Simulate time passing: wait out the lease until it has expired
+  store.setAttempt({
+    ...store.current()!,
+    reservation_expires_at: new Date(Date.now() - 5000).toISOString(),
+  });
+
+  // Attempt 2: Retry after lease has expired -> automatically recovers the attempt
+  const result = await uploadAdminDocument({
+    upload,
+    user: staff,
+    repository: store.repository,
+    drive: driveService,
+  });
+
+  assert.ok(result.document);
+  assert.equal(result.document.document_id, document.document_id);
+  assert.equal(uploadCallCount, 1, "exactly one Drive upload performed");
+  assert.equal(generateFileIdCount, 0, "no second Drive file generated");
+  assert.equal(store.current()?.status, "COMPLETE");
+  assert.equal(store.current()?.document_id, document.document_id);
 }));

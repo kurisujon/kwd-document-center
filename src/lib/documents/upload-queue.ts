@@ -42,6 +42,7 @@ export interface UploadQueueItem {
   documentId?: string;
   documentUrl?: string;
   retryCount: number;
+  firstInProgressAt?: number;
   abortHandle?: () => void;
   userId?: string;
 }
@@ -81,6 +82,7 @@ export class UploadQueue {
   private readonly transport: typeof startDocumentUpload;
   private readonly processingTimeoutMs: number;
   private currentUserId: string | null = null;
+  private lastKnownUserId: string | null = null;
   private isPaused = false;
   private isAuthExpired = false;
   private beforeUnloadRegistered = false;
@@ -178,31 +180,34 @@ export class UploadQueue {
 
   setActiveUser(userId: string | null): void {
     if (this.currentUserId === userId) return;
-    const isUserSwitch = this.currentUserId !== null && userId !== this.currentUserId;
-    this.currentUserId = userId;
 
-    if (isUserSwitch) {
-      // Abort active transfers and cancel pending queues from the prior user
-      for (const item of this.items) {
-        if (item.state === "QUEUED" || item.state === "UPLOADING") {
-          if (item.abortHandle) {
-            item.abortHandle();
-            item.abortHandle = undefined;
+    if (userId !== null) {
+      const isUserSwitch = this.lastKnownUserId !== null && userId !== this.lastKnownUserId;
+      this.currentUserId = userId;
+      this.lastKnownUserId = userId;
+
+      if (isUserSwitch) {
+        // Abort active transfers and cancel pending queues from the prior user
+        for (const item of this.items) {
+          if (item.state === "QUEUED" || item.state === "UPLOADING") {
+            if (item.abortHandle) {
+              item.abortHandle();
+              item.abortHandle = undefined;
+            }
+            item.state = "CANCELLED";
           }
-          item.state = "CANCELLED";
         }
       }
-    }
 
-    // Isolate queue per user: keep only processing items in flight so they commit on server,
-    // but filter prior user items from this user's view
-    if (userId === null) {
-      this.items = this.items.filter((i) => i.state === "PROCESSING");
-    } else {
+      // Filter out items belonging to another user, keep only items for this user
       this.items = this.items.filter((i) => !i.userId || i.userId === userId);
       for (const item of this.items) {
         if (!item.userId) item.userId = userId;
       }
+    } else {
+      // User is momentarily null (hydration or session refresh)
+      this.currentUserId = null;
+      // Do NOT wipe items here! Items remain intact in case the same user returns.
     }
 
     this.emitChange();
@@ -421,8 +426,8 @@ export class UploadQueue {
     handle.promise
       .then((result) => {
         clearProcessingTimer();
-        // If the active user has changed since this item started, drop it immediately so it is never displayed
-        if ((item.userId && this.currentUserId !== null && item.userId !== this.currentUserId) || (this.currentUserId === null && item.userId)) {
+        // If the active user has changed to a different user since this item started, drop it immediately so it is never displayed
+        if (item.userId && ((this.currentUserId !== null && item.userId !== this.currentUserId) || (this.lastKnownUserId !== null && item.userId !== this.lastKnownUserId))) {
           this.items = this.items.filter((i) => i.localId !== item.localId);
           this.emitChange();
           return;
@@ -439,7 +444,7 @@ export class UploadQueue {
       })
       .catch((err: unknown) => {
         clearProcessingTimer();
-        if ((item.userId && this.currentUserId !== null && item.userId !== this.currentUserId) || (this.currentUserId === null && item.userId)) {
+        if (item.userId && ((this.currentUserId !== null && item.userId !== this.currentUserId) || (this.lastKnownUserId !== null && item.userId !== this.lastKnownUserId))) {
           this.items = this.items.filter((i) => i.localId !== item.localId);
           this.emitChange();
           return;
@@ -458,7 +463,15 @@ export class UploadQueue {
           }
           if (err.code === "UPLOAD_IN_PROGRESS" || err.status === 409) {
             item.errorCode = "UPLOAD_IN_PROGRESS";
-            item.error = "Upload is still saving on the server. Retry shortly to check status.";
+            if (!item.firstInProgressAt) {
+              item.firstInProgressAt = Date.now();
+            }
+            const isStale = (item.retryCount ?? 0) >= 3 || (Date.now() - item.firstInProgressAt >= 180_000);
+            if (isStale) {
+              item.error = "Upload is taking longer than expected. Please contact an administrator.";
+            } else {
+              item.error = "Upload is still saving on the server. Retry shortly to check status.";
+            }
             this.emitChange();
             this.processQueue();
             return;

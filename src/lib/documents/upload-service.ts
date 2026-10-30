@@ -198,7 +198,7 @@ export async function uploadAdminDocument(input: {
     }
     if (!persisted) return uploadAdminDocument(input);
 
-    attempt = { ...attempt, status: "UPLOADING", drive_file_id: driveFileId, operation_token: operationToken, reservation_expires_at: null, safe_error_code: null };
+    attempt = { ...attempt, status: "UPLOADING", drive_file_id: driveFileId, operation_token: operationToken, safe_error_code: null };
   }
 
   if (attempt.status === "FAILED") {
@@ -209,6 +209,16 @@ export async function uploadAdminDocument(input: {
     if (!resume.resumed) return uploadAdminDocument(input);
     operationToken = resume.operationToken;
     attempt = { ...attempt, status: "UPLOADING", operation_token: operationToken, safe_error_code: null };
+  }
+
+  if (attempt.status === "UPLOADING" && !operationToken && attempt.drive_file_id) {
+    if (repository.reclaimExpiredUploadingAttempt) {
+      const reclaim = await repository.reclaimExpiredUploadingAttempt(attempt.id);
+      if (reclaim.reclaimed && reclaim.operationToken) {
+        operationToken = reclaim.operationToken;
+        attempt = { ...attempt, operation_token: operationToken };
+      }
+    }
   }
 
   if (attempt.status !== "UPLOADING" || !attempt.drive_file_id || !operationToken) {

@@ -255,3 +255,39 @@ test("upload-toast-ui: shows Still saving status and Check status button when up
   ui.unmount();
   queue.destroy();
 });
+
+test("upload-toast-ui: transitions from Still saving to contact administrator after limit is reached", () => {
+  const queue = new UploadQueue({
+    transport: () => ({
+      abort: () => {},
+      promise: new Promise(() => {}),
+    }),
+  });
+
+  queue.enqueue([
+    { localId: "item-stale", file: new File(["data"], "stale-item.pdf", { type: "application/pdf" }), metadata: sampleMetadata },
+  ]);
+
+  const item = queue.getSnapshot().items[0]!;
+  item.state = "FAILED";
+  item.errorCode = "UPLOAD_IN_PROGRESS";
+  item.retryCount = 3;
+  item.error = "Upload is taking longer than expected. Please contact an administrator.";
+
+  const ui = render(
+    React.createElement(
+      UploadQueueProvider,
+      { user: staffUser, queue },
+      React.createElement("div", null, "Staff Workspace"),
+    ),
+  );
+
+  // Status text should say contact administrator
+  assert.ok(ui.getByText("Upload is taking longer than expected. Please contact an administrator."));
+  // Action button remains available
+  const checkStatusBtn = ui.getByRole("button", { name: "Check status of stale-item.pdf" });
+  assert.ok(checkStatusBtn);
+
+  ui.unmount();
+  queue.destroy();
+});

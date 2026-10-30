@@ -6,7 +6,7 @@ export function SignOutButton() {
   async function signOut() {
     if (sharedUploadQueue.getSnapshot().hasActive) {
       const confirmSignOut = window.confirm(
-        "Uploads are currently in progress. Signing out will cancel active uploads. Do you want to continue?",
+        "Uploads still being saved will finish. Others will be cancelled. Do you want to sign out?",
       );
       if (!confirmSignOut) return;
       sharedUploadQueue.clear();

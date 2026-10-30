@@ -92,8 +92,9 @@ export interface UploadAttemptRepository {
   create(key: string, creatorId: string, snapshot: UploadMetadataSnapshot): Promise<UploadAttempt>;
   claimDriveIdReservation(attemptId: string, leaseDurationMs?: number): Promise<{ claimed: boolean; operationToken: string | null }>;
   clearDriveIdReservation(attemptId: string, expectedOperationToken: string): Promise<void>;
-  persistDriveFileId(attemptId: string, driveFileId: string, expectedOperationToken: string): Promise<boolean>;
-  resumeUpload(attemptId: string): Promise<{ resumed: boolean; operationToken: string | null }>;
+  persistDriveFileId(attemptId: string, driveFileId: string, expectedOperationToken: string, leaseDurationMs?: number): Promise<boolean>;
+  resumeUpload(attemptId: string, leaseDurationMs?: number): Promise<{ resumed: boolean; operationToken: string | null }>;
+  reclaimExpiredUploadingAttempt?(attemptId: string, leaseDurationMs?: number): Promise<{ reclaimed: boolean; operationToken: string | null }>;
   recoverInterruptedUploadToFailed(attemptId: string, expectedDriveFileId: string, expectedOperationToken: string): Promise<{ changed: boolean; attempt: UploadAttempt | null }>;
   markPendingRegistry(attemptId: string, driveFileId: string, expectedOperationToken: string): Promise<boolean>;
   markFailed(attemptId: string, expectedDriveFileId: string, expectedOperationToken: string, safeErrorCode: string): Promise<{ changed: boolean; attempt: UploadAttempt | null }>;
@@ -155,13 +156,14 @@ export function createUploadAttemptRepository(supabase: SupabaseClient): UploadA
         .eq("operation_token", expectedOperationToken);
       if (error) throw new Error("Unable to release Drive ID reservation.");
     },
-    async persistDriveFileId(attemptId, driveFileId, expectedOperationToken) {
+    async persistDriveFileId(attemptId, driveFileId, expectedOperationToken, leaseDurationMs = 120_000) {
+      const expiresAt = new Date(Date.now() + leaseDurationMs).toISOString();
       const { data, error } = await supabase
         .from("upload_attempts")
         .update({
           status: "UPLOADING",
           drive_file_id: driveFileId,
-          reservation_expires_at: null,
+          reservation_expires_at: expiresAt,
           safe_error_code: null,
           updated_at: new Date().toISOString(),
         })
@@ -173,16 +175,17 @@ export function createUploadAttemptRepository(supabase: SupabaseClient): UploadA
       if (error) throw new Error("Unable to persist Drive file ID.");
       return Boolean(data?.length);
     },
-    async resumeUpload(attemptId) {
+    async resumeUpload(attemptId, leaseDurationMs = 120_000) {
       // Generate a fresh operation token for this retry. Any stale request
       // holding the previous token will no longer be able to mutate state.
       const operationToken = randomUUID();
+      const expiresAt = new Date(Date.now() + leaseDurationMs).toISOString();
       const { data, error } = await supabase
         .from("upload_attempts")
         .update({
           status: "UPLOADING",
           operation_token: operationToken,
-          reservation_expires_at: null,
+          reservation_expires_at: expiresAt,
           safe_error_code: null,
           updated_at: new Date().toISOString(),
         })
@@ -192,6 +195,26 @@ export function createUploadAttemptRepository(supabase: SupabaseClient): UploadA
         .select("id");
       if (error) throw new Error("Unable to resume upload attempt.");
       return { resumed: Boolean(data?.length), operationToken: data?.length ? operationToken : null };
+    },
+    async reclaimExpiredUploadingAttempt(attemptId, leaseDurationMs = 120_000) {
+      const operationToken = randomUUID();
+      const nowIso = new Date().toISOString();
+      const expiresAt = new Date(Date.now() + leaseDurationMs).toISOString();
+      const { data, error } = await supabase
+        .from("upload_attempts")
+        .update({
+          operation_token: operationToken,
+          reservation_expires_at: expiresAt,
+          safe_error_code: null,
+          updated_at: nowIso,
+        })
+        .eq("id", attemptId)
+        .eq("status", "UPLOADING")
+        .not("drive_file_id", "is", null)
+        .lte("reservation_expires_at", nowIso)
+        .select("id");
+      if (error) throw new Error("Unable to reclaim expired uploading attempt.");
+      return { reclaimed: Boolean(data?.length), operationToken: data?.length ? operationToken : null };
     },
     async recoverInterruptedUploadToFailed(attemptId, expectedDriveFileId, expectedOperationToken) {
       const { data, error } = await supabase
@@ -215,7 +238,19 @@ export function createUploadAttemptRepository(supabase: SupabaseClient): UploadA
       return { changed: false, attempt: current.data as UploadAttempt | null };
     },
     async markPendingRegistry(attemptId, driveFileId, expectedOperationToken) {
-      const { data, error } = await supabase.from("upload_attempts").update({ status: "PENDING_REGISTRY", safe_error_code: null, updated_at: new Date().toISOString() }).eq("id", attemptId).eq("status", "UPLOADING").eq("drive_file_id", driveFileId).eq("operation_token", expectedOperationToken).select("id");
+      const { data, error } = await supabase
+        .from("upload_attempts")
+        .update({
+          status: "PENDING_REGISTRY",
+          reservation_expires_at: null,
+          safe_error_code: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", attemptId)
+        .eq("status", "UPLOADING")
+        .eq("drive_file_id", driveFileId)
+        .eq("operation_token", expectedOperationToken)
+        .select("id");
       if (error) throw new Error("Unable to preserve Drive upload state.");
       return Boolean(data?.length);
     },

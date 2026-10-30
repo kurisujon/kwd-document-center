@@ -24,6 +24,10 @@ function itemStatusText(item: UploadQueueItem): string {
       return "Uploaded";
     case "FAILED":
       if (item.errorCode === "UPLOAD_IN_PROGRESS") {
+        const isStale = (item.retryCount ?? 0) >= 3 || (item.firstInProgressAt ? Date.now() - item.firstInProgressAt >= 180_000 : false);
+        if (isStale) {
+          return "Upload is taking longer than expected. Please contact an administrator.";
+        }
         return "Still saving on server…";
       }
       return item.error ?? "Failed";
