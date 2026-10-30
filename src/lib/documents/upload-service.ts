@@ -1,6 +1,6 @@
 import type { AuthorizedUser } from "../auth/types";
 import { DriveConfigurationError, getAdminDriveFolderId } from "./drive-config";
-import type { DriveService } from "../google/drive-types";
+import type { DriveFileMetadata, DriveService } from "../google/drive-types";
 import { DriveServiceError } from "../google/drive-types";
 import { createHash } from "node:crypto";
 import type { FolderUploadAttemptRepository, UploadAttemptRepository } from "./upload-repository";
@@ -211,12 +211,14 @@ export async function uploadAdminDocument(input: {
     attempt = { ...attempt, status: "UPLOADING", operation_token: operationToken, safe_error_code: null };
   }
 
+  let isReclaimedUploading = false;
   if (attempt.status === "UPLOADING" && !operationToken && attempt.drive_file_id) {
     if (repository.reclaimExpiredUploadingAttempt) {
       const reclaim = await repository.reclaimExpiredUploadingAttempt(attempt.id);
       if (reclaim.reclaimed && reclaim.operationToken) {
         operationToken = reclaim.operationToken;
         attempt = { ...attempt, operation_token: operationToken };
+        isReclaimedUploading = true;
       }
     }
   }
@@ -226,14 +228,32 @@ export async function uploadAdminDocument(input: {
   }
 
   try {
-    const driveFile = await drive.upload({
-      fileId: attempt.drive_file_id,
-      folderId,
-      name: upload.file.name,
-      mimeType: upload.file.mimeType,
-      bytes: upload.file.bytes,
-      uploadAttemptId: attempt.id,
-    });
+    let driveFile: DriveFileMetadata | null = null;
+
+    // If recovering a crashed UPLOADING attempt that already had a Drive file ID,
+    // check whether the crashed worker already created the file in Google Drive.
+    if (isReclaimedUploading && drive.getMetadata) {
+      try {
+        const existing = await drive.getMetadata(attempt.drive_file_id);
+        if (existing && !existing.trashed && existing.id === attempt.drive_file_id) {
+          driveFile = existing;
+        }
+      } catch {
+        // File does not exist in Drive yet; proceed to upload
+      }
+    }
+
+    if (!driveFile) {
+      driveFile = await drive.upload({
+        fileId: attempt.drive_file_id,
+        folderId,
+        name: upload.file.name,
+        mimeType: upload.file.mimeType,
+        bytes: upload.file.bytes,
+        uploadAttemptId: attempt.id,
+      });
+    }
+
     if (!await repository.markPendingRegistry(attempt.id, driveFile.id, operationToken)) return uploadAdminDocument(input);
     attempt = { ...attempt, status: "PENDING_REGISTRY", drive_file_id: driveFile.id };
   } catch (error) {

@@ -6,7 +6,7 @@ import { createDownloadDocumentHandler, createOpenDocumentHandler, createUploadD
 import { DocumentUploadError, uploadAdminDocument } from "../src/lib/documents/upload-service.ts";
 import { validateAdminUploadForm } from "../src/lib/documents/upload-validation.ts";
 import { adminUploadAccept, adminUploadFormats, type AdminUploadExtension } from "../src/lib/documents/upload-formats.ts";
-import { classifyDriveError, DriveServiceError } from "../src/lib/google/drive-types.ts";
+import { classifyDriveError, DriveServiceError, type DriveFileMetadata } from "../src/lib/google/drive-types.ts";
 import { isDocumentId } from "../src/lib/documents/query.ts";
 import type { AuthorizationResult, AuthorizedUser } from "../src/lib/auth/types.ts";
 import type { DocumentRecord } from "../src/lib/documents/types.ts";
@@ -1402,4 +1402,138 @@ test("server crash mid-upload leaving row in UPLOADING: retry while lease active
   assert.equal(generateFileIdCount, 0, "no second Drive file generated");
   assert.equal(store.current()?.status, "COMPLETE");
   assert.equal(store.current()?.document_id, document.document_id);
+}));
+
+test("stale original worker finishing after lease expiration and reclaim cannot finalize and creates no second document or Drive file", async () => withFolderMap(async () => {
+  const upload = validUpload();
+  const existingDriveId = document.drive_file_id!;
+  let finalizedCount = 0;
+
+  // Attempt starts in UPLOADING owned by Stale Worker A with token-caller-a
+  const store = mockRepository({
+    existing: {
+      id: "33333333-3333-4333-8333-333333333333",
+      idempotency_key: upload.idempotencyKey,
+      status: "UPLOADING",
+      drive_file_id: existingDriveId,
+      operation_token: "token-caller-a",
+      reservation_expires_at: new Date(Date.now() - 5000).toISOString(), // expired
+      metadata_snapshot: snapshot(upload),
+      document_id: null,
+      created_by: staff.id,
+      safe_error_code: null,
+    },
+  });
+
+  // Track finalize calls
+  const originalFinalize = store.repository.finalize;
+  store.repository.finalize = async (att, email) => {
+    finalizedCount += 1;
+    return originalFinalize(att, email);
+  };
+
+  const driveService: DriveService = {
+    async generateFileId() { return "new_id"; },
+    async upload(input: { fileId: string }) {
+      return { id: input.fileId, name: document.file_name!, mimeType: document.file_type!, trashed: false, webViewLink: document.drive_url! };
+    },
+    async getMetadata() { throw new Error("not found"); },
+    async download() { throw new Error("not used"); },
+  };
+
+  // Step 1: Retry Caller B arrives after lease expired -> reclaims row with fresh token-caller-b and completes
+  const bResult = await uploadAdminDocument({
+    upload,
+    user: staff,
+    repository: store.repository,
+    drive: driveService,
+  });
+  assert.equal(bResult.created, true);
+  assert.equal(finalizedCount, 1);
+  assert.equal(store.current()?.status, "COMPLETE");
+
+  // Step 2: Stale Worker A wakes up and attempts markPendingRegistry with its stale token-caller-a
+  const stalePendingResult = await store.repository.markPendingRegistry(
+    "33333333-3333-4333-8333-333333333333",
+    existingDriveId,
+    "token-caller-a",
+  );
+  assert.equal(stalePendingResult, false, "stale token cannot mark PENDING_REGISTRY");
+
+  // Step 3: When Stale Worker A re-evaluates uploadAdminDocument, it receives the existing finalized document
+  const aResult = await uploadAdminDocument({
+    upload,
+    user: staff,
+    repository: store.repository,
+    drive: driveService,
+  });
+  assert.equal(aResult.created, false, "stale caller receives existing document, not created again");
+  assert.equal(aResult.document.document_id, document.document_id);
+  assert.equal(finalizedCount, 1, "finalize called exactly once; no second document created");
+}));
+
+test("crashed worker already created file in Drive: retry checks Drive metadata, does not call upload again on fake Drive rejecting duplicate IDs, and finalizes cleanly", async () => withFolderMap(async () => {
+  const upload = validUpload();
+  const existingDriveId = document.drive_file_id!;
+  let uploadCallCount = 0;
+  let getMetadataCallCount = 0;
+
+  // Fake Google Drive service that tracks created file IDs and rejects duplicate creation with a 409
+  const createdDriveFiles = new Map<string, DriveFileMetadata>();
+  createdDriveFiles.set(existingDriveId, {
+    id: existingDriveId,
+    name: upload.file.name,
+    mimeType: upload.file.mimeType,
+    trashed: false,
+    webViewLink: "https://drive.google.com/file/d/" + existingDriveId,
+  });
+
+  const driveService: DriveService = {
+    async generateFileId() { throw new Error("generateFileId should not be called"); },
+    async upload(input: { fileId: string }) {
+      uploadCallCount += 1;
+      if (createdDriveFiles.has(input.fileId)) {
+        throw new DriveServiceError("CONFLICT", "Google Drive 409: file already exists with ID " + input.fileId);
+      }
+      return { id: input.fileId, name: upload.file.name, mimeType: upload.file.mimeType, trashed: false, webViewLink: "https://drive.google.com/file/d/" + input.fileId };
+    },
+    async getMetadata(fileId: string) {
+      getMetadataCallCount += 1;
+      const file = createdDriveFiles.get(fileId);
+      if (!file) throw new DriveServiceError("NOT_FOUND", "File not found");
+      return file;
+    },
+    async download() { throw new Error("not used"); },
+  };
+
+  // Attempt was left in UPLOADING with expired lease, but worker had already created the file in Drive before dying
+  const store = mockRepository({
+    existing: {
+      id: "33333333-3333-4333-8333-333333333333",
+      idempotency_key: upload.idempotencyKey,
+      status: "UPLOADING",
+      drive_file_id: existingDriveId,
+      operation_token: "crashed-worker-token",
+      reservation_expires_at: new Date(Date.now() - 5000).toISOString(),
+      metadata_snapshot: snapshot(upload),
+      document_id: null,
+      created_by: staff.id,
+      safe_error_code: null,
+    },
+  });
+
+  // Retry arrives: reclaims expired attempt, checks Drive metadata, finds existing file,
+  // skips drive.upload (which would fail with duplicate ID), and finalizes registry
+  const result = await uploadAdminDocument({
+    upload,
+    user: staff,
+    repository: store.repository,
+    drive: driveService,
+  });
+
+  assert.ok(result.document);
+  assert.equal(result.document.document_id, document.document_id);
+  assert.equal(getMetadataCallCount, 1, "checked Google Drive metadata for the existing reserved ID");
+  assert.equal(uploadCallCount, 0, "did not call drive.upload because file already exists in Drive");
+  assert.equal(store.current()?.status, "COMPLETE");
 }));
