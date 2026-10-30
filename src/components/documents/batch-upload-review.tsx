@@ -22,7 +22,7 @@ function statusLabel(status: BatchUploadItem["status"]) {
 export function BatchUploadReview({ categories, maxBytes }: Props) {
   const [defaults, setDefaults] = useState<BatchUploadDefaults>(() => defaultValues(categories[0]));
   const [initialData] = useState(() => {
-    const staged = stagedUploadStore.consume();
+    const staged = stagedUploadStore.peek();
     if (staged.length > 0) {
       return stageDroppedBatchFiles([], staged, defaultValues(categories[0]), maxBytes);
     }
@@ -35,6 +35,13 @@ export function BatchUploadReview({ categories, maxBytes }: Props) {
   const [uploading, setUploading] = useState(false);
   const [selectionError, setSelectionError] = useState<string | undefined>(() => initialData.message);
   const queueGuard = useRef(createBatchUploadRunGuard());
+
+  useEffect(() => {
+    // Clear the staged store after initial mount consumption so subsequent visits start clean
+    if (stagedUploadStore.peek().length > 0) {
+      stagedUploadStore.clear();
+    }
+  }, []);
 
   const counts = useMemo(() => ({
     ready: items.filter((item) => item.status === "READY").length,

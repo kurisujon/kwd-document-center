@@ -96,6 +96,24 @@ export function UploadDropzone({
 
       // Filter out non-file items (e.g. text or URL drags from another tab or window)
       if (dataTransfer.items && dataTransfer.items.length > 0) {
+        const hasDirectory = Array.from(dataTransfer.items).some((item) => {
+          try {
+            const entry = (item as unknown as { webkitGetAsEntry?: () => { isDirectory: boolean } | null }).webkitGetAsEntry?.();
+            return entry?.isDirectory === true;
+          } catch {
+            return false;
+          }
+        });
+
+        if (hasDirectory) {
+          if (directory) {
+            onNonFileRejected?.("Folder drag-and-drop is not supported yet. Please use the 'Select a folder' button.");
+          } else {
+            onNonFileRejected?.("Folders cannot be uploaded in batch upload. Please drop individual files or use Folder Upload.");
+          }
+          return;
+        }
+
         const fileItems = Array.from(dataTransfer.items).filter((item) => item.kind === "file");
         if (fileItems.length === 0) {
           onNonFileRejected?.("Only files can be dropped here.");
@@ -121,7 +139,7 @@ export function UploadDropzone({
         onNonFileRejected?.("Only files can be dropped here.");
       }
     },
-    [disabled, onFilesSelected, onNonFileRejected],
+    [disabled, directory, onFilesSelected, onNonFileRejected],
   );
 
   const handleInputChange = useCallback(

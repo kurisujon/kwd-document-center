@@ -4,6 +4,7 @@ import { JSDOM } from "jsdom";
 import React from "react";
 import { UploadDropzone } from "../src/components/documents/upload-dropzone.tsx";
 import { WindowDropGuard } from "../src/components/documents/window-drop-guard.tsx";
+import { BatchUploadReview } from "../src/components/documents/batch-upload-review.tsx";
 import { stagedUploadStore } from "../src/lib/documents/staged-upload-store.ts";
 import {
   stageDroppedBatchFiles,
@@ -17,6 +18,7 @@ Object.assign(globalThis, {
   document: dom.window.document,
   HTMLElement: dom.window.HTMLElement,
   HTMLInputElement: dom.window.HTMLInputElement,
+  HTMLTextAreaElement: dom.window.HTMLTextAreaElement,
   HTMLLabelElement: dom.window.HTMLLabelElement,
   Event: dom.window.Event,
   DragEvent: dom.window.DragEvent,
@@ -246,15 +248,110 @@ test("stagedUploadStore stores and consumes staged files across client navigatio
   assert.equal(stagedUploadStore.peek().length, 0); // Consumed and cleared
 });
 
-test("WindowDropGuard prevents default browser navigation on window dragover and drop", () => {
+test("WindowDropGuard prevents default browser navigation on window dragover and drop for files", () => {
   render(React.createElement(WindowDropGuard));
 
-  let defaultPrevented = false;
-  const dropEvent = new dom.window.Event("drop", { cancelable: true });
-  dropEvent.preventDefault = () => {
-    defaultPrevented = true;
+  const div = dom.window.document.createElement("div");
+  dom.window.document.body.appendChild(div);
+
+  const fileDataTransfer = {
+    types: ["Files"],
+    items: [{ kind: "file" }],
   };
 
-  dom.window.dispatchEvent(dropEvent);
-  assert.equal(defaultPrevented, true);
+  const event = fireEvent.drop(div, { dataTransfer: fileDataTransfer });
+  // fireEvent returns false when preventDefault() was called
+  assert.equal(event, false);
+
+  dom.window.document.body.removeChild(div);
+});
+
+test("WindowDropGuard does not block text drag and drop into text inputs", () => {
+  render(React.createElement(WindowDropGuard));
+
+  const textInput = dom.window.document.createElement("input");
+  textInput.type = "text";
+  dom.window.document.body.appendChild(textInput);
+
+  const textDataTransfer = {
+    types: ["text/plain"],
+    items: [{ kind: "string" }],
+  };
+
+  const event = fireEvent.drop(textInput, { dataTransfer: textDataTransfer });
+  // fireEvent returns true when preventDefault() was NOT called
+  assert.equal(event, true, "Text drop into text input should not be prevented");
+
+  dom.window.document.body.removeChild(textInput);
+});
+
+test("WindowDropGuard does not block file drops directly onto native file input", () => {
+  render(React.createElement(WindowDropGuard));
+
+  const fileInput = dom.window.document.createElement("input");
+  fileInput.type = "file";
+  dom.window.document.body.appendChild(fileInput);
+
+  const fileDataTransfer = {
+    types: ["Files"],
+    items: [{ kind: "file" }],
+  };
+
+  const event = fireEvent.drop(fileInput, { dataTransfer: fileDataTransfer });
+  // fireEvent returns true when preventDefault() was NOT called
+  assert.equal(event, true, "File drop directly onto native file input should not be prevented");
+
+  dom.window.document.body.removeChild(fileInput);
+});
+
+test("UploadDropzone reports clear failure message when a folder is dropped", () => {
+  let rejectionMessage = "";
+  const { container } = render(
+    React.createElement(UploadDropzone, {
+      title: "Folder dropzone",
+      inputLabel: "Select a folder",
+      directory: true,
+      onFilesSelected: () => {},
+      onNonFileRejected: (msg) => {
+        rejectionMessage = msg;
+      },
+    }),
+  );
+
+  const label = container.querySelector("label");
+  assert.ok(label);
+
+  const folderDataTransfer = {
+    types: ["Files"],
+    items: [
+      {
+        kind: "file",
+        webkitGetAsEntry: () => ({ isDirectory: true, isFile: false }),
+        getAsFile: () => null,
+      },
+    ],
+    files: [],
+  };
+
+  fireEvent.drop(label, { dataTransfer: folderDataTransfer });
+  assert.equal(rejectionMessage, "Folder drag-and-drop is not supported yet. Please use the 'Select a folder' button.");
+});
+
+test("staged files survive React Strict Mode in development", () => {
+  const stagedFile = createMockFile("strict-mode-doc.pdf", 4000);
+  stagedUploadStore.set([stagedFile]);
+
+  // Render inside React.StrictMode which double-invokes render/initializers
+  const { container } = render(
+    React.createElement(
+      React.StrictMode,
+      null,
+      React.createElement(BatchUploadReview, {
+        categories: ["MEMORANDUM"],
+        maxBytes: 4 * 1024 * 1024,
+      }),
+    ),
+  );
+
+  assert.ok(container.textContent?.includes("strict-mode-doc.pdf"), "Staged file should be visible in Strict Mode");
 });
