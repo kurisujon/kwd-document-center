@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { documentColumns } from "./repository";
 import type { DocumentRecord } from "./types";
 import type { UploadAttempt, UploadMetadataSnapshot } from "./upload-types";
+import { UPLOAD_LEASE_DURATION_MS } from "./upload-timing";
 
 const attemptColumns = "id, idempotency_key, status, drive_file_id, operation_token, reservation_expires_at, metadata_snapshot, document_id, created_by, safe_error_code";
 
@@ -196,7 +197,7 @@ export function createUploadAttemptRepository(supabase: SupabaseClient): UploadA
       if (error) throw new Error("Unable to resume upload attempt.");
       return { resumed: Boolean(data?.length), operationToken: data?.length ? operationToken : null };
     },
-    async reclaimExpiredUploadingAttempt(attemptId, leaseDurationMs = 120_000) {
+    async reclaimExpiredUploadingAttempt(attemptId, leaseDurationMs = UPLOAD_LEASE_DURATION_MS) {
       const operationToken = randomUUID();
       const nowIso = new Date().toISOString();
       const expiresAt = new Date(Date.now() + leaseDurationMs).toISOString();

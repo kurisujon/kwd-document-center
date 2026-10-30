@@ -14,6 +14,7 @@ import {
 } from "./upload-transport";
 import type { BatchUploadMetadata } from "./batch-upload-types";
 import { batchUploadConcurrency } from "./batch-upload-types";
+import { UPLOAD_CLIENT_PROCESSING_TIMEOUT_MS } from "./upload-timing";
 
 export type UploadQueueItemState =
   | "QUEUED"
@@ -91,7 +92,7 @@ export class UploadQueue {
   constructor(config?: UploadQueueConfig) {
     this.concurrency = config?.concurrency ?? batchUploadConcurrency;
     this.transport = config?.transport ?? startDocumentUpload;
-    this.processingTimeoutMs = config?.processingTimeoutMs ?? 75_000;
+    this.processingTimeoutMs = config?.processingTimeoutMs ?? UPLOAD_CLIENT_PROCESSING_TIMEOUT_MS;
     this.currentSnapshot = this.computeSnapshot();
 
     if (typeof window !== "undefined") {

@@ -7,6 +7,7 @@ import type { FolderUploadAttemptRepository, UploadAttemptRepository } from "./u
 import { resolveFolderUploadDestinationContext, type FolderUploadDestinationContext } from "./upload-destination";
 import type { HierarchyFolderRecord } from "./hierarchy-repository";
 import type { UploadAttempt, UploadMetadataSnapshot, UploadResult, ValidatedAdminUpload, ValidatedFolderUpload } from "./upload-types";
+import { UPLOAD_LEASE_DURATION_MS } from "./upload-timing";
 import { logOperationalFailure } from "../observability/log";
 
 export type UploadErrorCode = "VALIDATION_ERROR" | "DRIVE_ERROR" | "DRIVE_AUTH_EXPIRED" | "REGISTRY_ERROR" | "UPLOAD_IN_PROGRESS" | "DUPLICATE_DOCUMENT";
@@ -215,7 +216,7 @@ export async function uploadAdminDocument(input: {
   let isReclaimedUploading = false;
   if (attempt.status === "UPLOADING" && !operationToken && attempt.drive_file_id) {
     if (repository.reclaimExpiredUploadingAttempt) {
-      const reclaim = await repository.reclaimExpiredUploadingAttempt(attempt.id);
+      const reclaim = await repository.reclaimExpiredUploadingAttempt(attempt.id, UPLOAD_LEASE_DURATION_MS);
       if (reclaim.reclaimed && reclaim.operationToken) {
         operationToken = reclaim.operationToken;
         attempt = { ...attempt, operation_token: operationToken };
