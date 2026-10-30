@@ -67,6 +67,7 @@ function sameSnapshot(left: UploadMetadataSnapshot, right: UploadMetadataSnapsho
     && left.file_name === right.file_name
     && left.file_type === right.file_type
     && left.file_size === right.file_size
+    && (!left.file_sha256 || !right.file_sha256 || left.file_sha256 === right.file_sha256)
     && JSON.stringify(left.custom_metadata ?? {}) === JSON.stringify(right.custom_metadata ?? {});
 }
 
@@ -236,9 +237,30 @@ export async function uploadAdminDocument(input: {
       try {
         const existing = await drive.getMetadata(attempt.drive_file_id);
         if (existing && !existing.trashed && existing.id === attempt.drive_file_id) {
+          const expectedSize = upload.file.bytes.length;
+          const expectedMd5 = createHash("md5").update(upload.file.bytes).digest("hex").toLowerCase();
+          const sizeMatches = existing.size === null || existing.size === undefined || existing.size === expectedSize;
+          const md5Matches = !existing.md5Checksum || existing.md5Checksum.toLowerCase() === expectedMd5;
+
+          if (!sizeMatches || !md5Matches) {
+            logOperationalFailure({
+              operation: "documents.upload.reclaim.verify",
+              outcome: "failure",
+              category: "DRIVE_INTEGRITY_MISMATCH",
+              status: 500,
+              resourceId: attempt.id,
+            });
+            throw new DocumentUploadError(
+              "DRIVE_ERROR",
+              "The file in Google Drive does not match the uploaded content. Please contact an administrator.",
+              500,
+            );
+          }
+
           driveFile = existing;
         }
-      } catch {
+      } catch (error) {
+        if (error instanceof DocumentUploadError) throw error;
         // File does not exist in Drive yet; proceed to upload
       }
     }
@@ -257,6 +279,7 @@ export async function uploadAdminDocument(input: {
     if (!await repository.markPendingRegistry(attempt.id, driveFile.id, operationToken)) return uploadAdminDocument(input);
     attempt = { ...attempt, status: "PENDING_REGISTRY", drive_file_id: driveFile.id };
   } catch (error) {
+    if (error instanceof DocumentUploadError) throw error;
     if (error instanceof DriveServiceError) {
       if (error.kind !== "AMBIGUOUS") {
         try {
@@ -366,6 +389,7 @@ export async function uploadFolderDocument(input: {
     if (!await input.attempts.markPendingRegistry(attempt.id, driveFile.id, operationToken)) return uploadFolderDocument(input);
     attempt = { ...attempt, status: "PENDING_REGISTRY", drive_file_id: driveFile.id };
   } catch (error) {
+    if (error instanceof DocumentUploadError) throw error;
     if (error instanceof DriveServiceError) {
       if (error.kind !== "AMBIGUOUS") {
         const failure = await input.attempts.markFailed(attempt.id, attempt.drive_file_id!, operationToken, "DRIVE_ERROR");

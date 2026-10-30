@@ -17,6 +17,8 @@ export interface DriveFileMetadata {
   mimeType: string;
   trashed: boolean;
   webViewLink: string;
+  size?: number | null;
+  md5Checksum?: string | null;
 }
 
 export interface DriveDownload extends DriveFileMetadata {

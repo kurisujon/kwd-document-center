@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { Readable } from "node:stream";
 import test from "node:test";
@@ -563,6 +564,41 @@ test("an idempotency key cannot be reused for different metadata", async () => w
   const upload = validUpload();
   const existing = { id: "33333333-3333-4333-8333-333333333333", idempotency_key: upload.idempotencyKey, status: "PENDING_REGISTRY" as const, drive_file_id: document.drive_file_id, operation_token: null, reservation_expires_at: null, metadata_snapshot: { ...snapshot(upload), subject: "Different" }, document_id: null, created_by: staff.id, safe_error_code: null };
   await assert.rejects(() => uploadAdminDocument({ upload, user: staff, repository: mockRepository({ existing }).repository, drive: mockDrive().service }), (error: unknown) => error instanceof DocumentUploadError && error.code === "VALIDATION_ERROR");
+}));
+
+test("reusing an idempotency key with different file content is rejected with 409 VALIDATION_ERROR", async () => withFolderMap(async () => {
+  const upload = validUpload();
+  const existing = {
+    id: "33333333-3333-4333-8333-333333333333",
+    idempotency_key: upload.idempotencyKey,
+    status: "PENDING_REGISTRY" as const,
+    drive_file_id: document.drive_file_id,
+    operation_token: null,
+    reservation_expires_at: null,
+    metadata_snapshot: { ...snapshot(upload), file_sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+    document_id: null,
+    created_by: staff.id,
+    safe_error_code: null,
+  };
+  const uploadWithDifferentHash: ValidatedAdminUpload = {
+    ...upload,
+    fileSha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  };
+  await assert.rejects(
+    () => uploadAdminDocument({
+      upload: uploadWithDifferentHash,
+      user: staff,
+      repository: mockRepository({ existing }).repository,
+      drive: mockDrive().service,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof DocumentUploadError);
+      assert.equal(error.code, "VALIDATION_ERROR");
+      assert.equal(error.status, 409);
+      assert.match(error.message, /This idempotency key belongs to a different upload\./);
+      return true;
+    },
+  );
 }));
 
 test("missing Admin folder map falls back to root and fails only without a valid destination", async () => {
@@ -1486,6 +1522,8 @@ test("crashed worker already created file in Drive: retry checks Drive metadata,
     mimeType: upload.file.mimeType,
     trashed: false,
     webViewLink: "https://drive.google.com/file/d/" + existingDriveId,
+    size: upload.file.bytes.length,
+    md5Checksum: createHash("md5").update(upload.file.bytes).digest("hex"),
   });
 
   const driveService: DriveService = {
@@ -1536,4 +1574,72 @@ test("crashed worker already created file in Drive: retry checks Drive metadata,
   assert.equal(getMetadataCallCount, 1, "checked Google Drive metadata for the existing reserved ID");
   assert.equal(uploadCallCount, 0, "did not call drive.upload because file already exists in Drive");
   assert.equal(store.current()?.status, "COMPLETE");
+}));
+
+test("crashed worker left mismatched file in Drive: retry detects size/MD5 mismatch, refuses to adopt or overwrite, and fails with DRIVE_ERROR", async () => withFolderMap(async () => {
+  const upload = validUpload();
+  const existingDriveId = document.drive_file_id!;
+  let uploadCallCount = 0;
+  let getMetadataCallCount = 0;
+
+  // Fake Drive file with corrupted/truncated size or MD5
+  const corruptedDriveFile: DriveFileMetadata = {
+    id: existingDriveId,
+    name: upload.file.name,
+    mimeType: upload.file.mimeType,
+    trashed: false,
+    webViewLink: "https://drive.google.com/file/d/" + existingDriveId,
+    size: upload.file.bytes.length + 999, // mismatched size
+    md5Checksum: "00000000000000000000000000000000", // mismatched MD5
+  };
+
+  const driveService: DriveService = {
+    async generateFileId() { throw new Error("generateFileId should not be called"); },
+    async upload() {
+      uploadCallCount += 1;
+      return { id: existingDriveId, name: upload.file.name, mimeType: upload.file.mimeType, trashed: false, webViewLink: "https://drive.google.com/file/d/" + existingDriveId };
+    },
+    async getMetadata(fileId: string) {
+      getMetadataCallCount += 1;
+      if (fileId === existingDriveId) return corruptedDriveFile;
+      throw new DriveServiceError("NOT_FOUND", "File not found");
+    },
+    async download() { throw new Error("not used"); },
+  };
+
+  const store = mockRepository({
+    existing: {
+      id: "33333333-3333-4333-8333-333333333333",
+      idempotency_key: upload.idempotencyKey,
+      status: "UPLOADING",
+      drive_file_id: existingDriveId,
+      operation_token: "crashed-worker-token",
+      reservation_expires_at: new Date(Date.now() - 5000).toISOString(),
+      metadata_snapshot: snapshot(upload),
+      document_id: null,
+      created_by: staff.id,
+      safe_error_code: null,
+    },
+  });
+
+  await assert.rejects(
+    () => uploadAdminDocument({
+      upload,
+      user: staff,
+      repository: store.repository,
+      drive: driveService,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof DocumentUploadError);
+      assert.equal(error.code, "DRIVE_ERROR");
+      assert.equal(error.status, 500);
+      assert.equal(error.message, "The file in Google Drive does not match the uploaded content. Please contact an administrator.");
+      return true;
+    },
+  );
+
+  assert.equal(getMetadataCallCount, 1, "metadata was checked");
+  assert.equal(uploadCallCount, 0, "upload must not be called to overwrite corrupted Drive file");
+  assert.equal(store.calls.filter((c) => c === "finalize").length, 0, "must not adopt or finalize mismatched Drive file");
+  assert.equal(store.current()?.status, "UPLOADING", "must not transition to COMPLETE");
 }));
