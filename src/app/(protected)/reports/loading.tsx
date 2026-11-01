@@ -3,8 +3,11 @@ export default function ReportsLoading() {
     <section className="reports-container" aria-label="Loading reports">
       <header className="page-heading">
         <div style={{ width: "100%" }}>
-          <span className="skeleton-line" style={{ width: "10rem", height: "0.85rem" }} />
-          <span className="skeleton-line" style={{ width: "18rem", height: "2.2rem", margin: "0.5rem 0" }} />
+          <div className="skeleton-status-badge" role="status">
+            <span className="skeleton-pulse-dot" aria-hidden="true" />
+            <span>Loading reports...</span>
+          </div>
+          <span className="skeleton-line" style={{ width: "18rem", height: "2.2rem", margin: "0.25rem 0 0.5rem" }} />
           <span className="skeleton-line" style={{ width: "26rem", height: "1rem" }} />
         </div>
       </header>
@@ -21,8 +24,18 @@ export default function ReportsLoading() {
       </section>
 
       {/* Table skeleton */}
-      <section className="results-section">
-        <div className="skeleton-table" />
+      <section className="results-section" aria-hidden="true">
+        <div className="skeleton-table">
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem" }}>
+            <span className="skeleton-line" style={{ width: "12rem", height: "1.25rem", marginBottom: 0 }} />
+            <span className="skeleton-line" style={{ width: "5rem", height: "1rem", marginBottom: 0 }} />
+          </div>
+          <div style={{ display: "grid", gap: "0.65rem" }}>
+            <span className="skeleton-line" style={{ width: "100%", height: "2.25rem", marginBottom: 0 }} />
+            <span className="skeleton-line" style={{ width: "100%", height: "2.25rem", marginBottom: 0 }} />
+            <span className="skeleton-line" style={{ width: "100%", height: "2.25rem", marginBottom: 0 }} />
+          </div>
+        </div>
       </section>
     </section>
   );

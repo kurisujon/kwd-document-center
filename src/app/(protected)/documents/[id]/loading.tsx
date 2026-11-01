@@ -1,11 +1,13 @@
 export default function DocumentDetailLoading() {
   return (
     <section className="document-detail-container" aria-label="Loading document detail">
-      <span className="skeleton-line" style={{ width: "9rem", height: "1rem", marginBottom: "1rem" }} />
       <header className="page-heading">
         <div style={{ width: "100%" }}>
-          <span className="skeleton-line" style={{ width: "8rem", height: "0.85rem" }} />
-          <span className="skeleton-line" style={{ width: "20rem", height: "2.2rem", margin: "0.5rem 0" }} />
+          <div className="skeleton-status-badge" role="status">
+            <span className="skeleton-pulse-dot" aria-hidden="true" />
+            <span>Loading document details...</span>
+          </div>
+          <span className="skeleton-line" style={{ width: "20rem", height: "2.2rem", margin: "0.25rem 0 0.5rem" }} />
           <span className="skeleton-line" style={{ width: "16rem", height: "1rem" }} />
         </div>
       </header>
