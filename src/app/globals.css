@@ -889,11 +889,11 @@ tbody tr:hover { background: #f8fafc; }
 .skeleton-header {
   display: block;
   border-radius: var(--radius-control);
-  background: linear-gradient(90deg, #dce4ee 0%, #edf2f7 25%, #ffffff 50%, #edf2f7 75%, #dce4ee 100%);
+  background: linear-gradient(90deg, #e5e7eb 0%, #f3f4f6 50%, #e5e7eb 100%);
   background-size: 200% 100%;
-  animation: skeleton-shimmer 1.5s infinite ease-in-out;
-  border: 1px solid #cbd5e1;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  animation: skeleton-shimmer 1.8s infinite ease-in-out;
+  border: none;
+  box-shadow: none;
 }
 
 .skeleton-card {
@@ -909,10 +909,11 @@ tbody tr:hover { background: #f8fafc; }
 }
 
 .skeleton-card:empty {
-  background: linear-gradient(90deg, #dce4ee 0%, #edf2f7 25%, #ffffff 50%, #edf2f7 75%, #dce4ee 100%);
+  background: linear-gradient(90deg, #e5e7eb 0%, #f3f4f6 50%, #e5e7eb 100%);
   background-size: 200% 100%;
-  animation: skeleton-shimmer 1.5s infinite ease-in-out;
-  border: 1px solid #cbd5e1;
+  animation: skeleton-shimmer 1.8s infinite ease-in-out;
+  border: none;
+  box-shadow: none;
 }
 
 .skeleton-table {
@@ -927,10 +928,11 @@ tbody tr:hover { background: #f8fafc; }
 }
 
 .skeleton-table:empty {
-  background: linear-gradient(90deg, #dce4ee 0%, #edf2f7 25%, #ffffff 50%, #edf2f7 75%, #dce4ee 100%);
+  background: linear-gradient(90deg, #e5e7eb 0%, #f3f4f6 50%, #e5e7eb 100%);
   background-size: 200% 100%;
-  animation: skeleton-shimmer 1.5s infinite ease-in-out;
-  border: 1px solid #cbd5e1;
+  animation: skeleton-shimmer 1.8s infinite ease-in-out;
+  border: none;
+  box-shadow: none;
 }
 
 .skeleton-detail {
@@ -943,10 +945,11 @@ tbody tr:hover { background: #f8fafc; }
 }
 
 .skeleton-detail:empty {
-  background: linear-gradient(90deg, #dce4ee 0%, #edf2f7 25%, #ffffff 50%, #edf2f7 75%, #dce4ee 100%);
+  background: linear-gradient(90deg, #e5e7eb 0%, #f3f4f6 50%, #e5e7eb 100%);
   background-size: 200% 100%;
-  animation: skeleton-shimmer 1.5s infinite ease-in-out;
-  border: 1px solid #cbd5e1;
+  animation: skeleton-shimmer 1.8s infinite ease-in-out;
+  border: none;
+  box-shadow: none;
 }
 
 .skeleton-line { min-height: 1.25rem; margin-bottom: 0.5rem; }

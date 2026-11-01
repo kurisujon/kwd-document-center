@@ -574,6 +574,7 @@ test("Check again keeps a repeatedly pending row unresolved, cooled down, and on
   const checkAgain = () => ui.getByRole("button", { name: "Check again" }) as HTMLButtonElement;
   assert.equal(checkAgain().disabled, true);
   await act(async () => { await new Promise((resolve) => setTimeout(resolve, 600)); });
+  await waitFor(() => assert.equal(checkAgain().disabled, false));
   await user.click(checkAgain());
   await waitFor(() => assert.equal(posted.length, 2));
   await waitFor(() => assert.match(ui.getByText("In progress").textContent ?? "", /In progress/));
@@ -584,6 +585,7 @@ test("Check again keeps a repeatedly pending row unresolved, cooled down, and on
   await user.click(checkAgain());
   assert.equal(posted.length, 2, "disabled Check again cannot dispatch while cooled down");
   await act(async () => { await new Promise((resolve) => setTimeout(resolve, 600)); });
+  await waitFor(() => assert.equal(checkAgain().disabled, false));
   await user.click(checkAgain());
   await waitFor(() => assert.equal(posted.length, 3));
   const third = posted[2]!;
