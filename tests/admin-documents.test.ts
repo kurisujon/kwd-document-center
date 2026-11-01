@@ -223,15 +223,15 @@ function snapshot(upload: ValidatedAdminUpload): UploadMetadataSnapshot {
   return { ...upload.metadata, file_name: upload.file.name, file_type: upload.file.mimeType, file_size: upload.file.size };
 }
 
-function mockRepository(options: { existing?: UploadAttempt | null; failFinalizeOnce?: boolean } = {}) {
-  let attempt = options.existing ?? null;
+function mockRepository(options: { existing?: (UploadAttempt & { updated_at?: string }) | null; failFinalizeOnce?: boolean } = {}) {
+  let attempt: (UploadAttempt & { updated_at?: string }) | null = options.existing ?? null;
   let failFinalizeOnce = options.failFinalizeOnce ?? false;
   let tokenCounter = 0;
   const calls: string[] = [];
   return {
     calls,
     current: () => attempt,
-    setAttempt: (next: UploadAttempt | null) => { attempt = next; },
+    setAttempt: (next: (UploadAttempt & { updated_at?: string }) | null) => { attempt = next; },
     repository: {
       async findByIdempotencyKey() { calls.push("find"); return attempt; },
       async create(key: string, creatorId: string, metadata: UploadMetadataSnapshot) {
@@ -283,10 +283,13 @@ function mockRepository(options: { existing?: UploadAttempt | null; failFinalize
       async reclaimExpiredUploadingAttempt(_id: string, leaseDurationMs = 120_000) {
         calls.push("reclaim_uploading");
         const now = Date.now();
-        const isExpired = attempt?.reservation_expires_at
+        const isLeaseExpired = attempt?.reservation_expires_at
           ? new Date(attempt.reservation_expires_at).getTime() <= now
           : false;
-        if (!attempt || attempt.status !== "UPLOADING" || attempt.drive_file_id === null || !isExpired) {
+        const isLegacyStale = attempt?.reservation_expires_at === null && typeof attempt?.updated_at === "string"
+          ? new Date(attempt.updated_at).getTime() <= now - leaseDurationMs
+          : false;
+        if (!attempt || attempt.status !== "UPLOADING" || attempt.drive_file_id === null || (!isLeaseExpired && !isLegacyStale)) {
           return { reclaimed: false, operationToken: null };
         }
         tokenCounter += 1;
@@ -1701,5 +1704,50 @@ test("reclaim converts Drive size string to number before comparison and success
   assert.equal(result.document.document_id, document.document_id);
   assert.equal(getMetadataCallCount, 1, "checked Google Drive metadata");
   assert.equal(uploadCallCount, 0, "did not re-upload because string size was converted to number and matched");
+  assert.equal(store.current()?.status, "COMPLETE");
+}));
+
+test("legacy stuck row in UPLOADING with NULL reservation_expires_at is reclaimed if updated_at exceeds lease duration", async () => withFolderMap(async () => {
+  const upload = validUpload();
+  const existingDriveId = document.drive_file_id!;
+  let uploadCallCount = 0;
+  const driveService: DriveService = {
+    async generateFileId() { throw new Error("not used"); },
+    async upload(input: { fileId: string }) {
+      uploadCallCount += 1;
+      assert.equal(input.fileId, existingDriveId);
+      return { id: existingDriveId, name: document.file_name!, mimeType: document.file_type!, trashed: false, webViewLink: document.drive_url! };
+    },
+    async getMetadata() { throw new Error("not used"); },
+    async download() { throw new Error("not used"); },
+  };
+
+  // Pre-existing legacy row: reservation_expires_at is NULL, updated_at was 5 minutes ago (exceeds lease)
+  const store = mockRepository({
+    existing: {
+      id: "33333333-3333-4333-8333-333333333333",
+      idempotency_key: upload.idempotencyKey,
+      status: "UPLOADING",
+      drive_file_id: existingDriveId,
+      operation_token: "legacy-worker-token",
+      reservation_expires_at: null,
+      metadata_snapshot: snapshot(upload),
+      document_id: null,
+      created_by: staff.id,
+      safe_error_code: null,
+      updated_at: new Date(Date.now() - 300_000).toISOString(),
+    },
+  });
+
+  const result = await uploadAdminDocument({
+    upload,
+    user: staff,
+    repository: store.repository,
+    drive: driveService,
+  });
+
+  assert.ok(result.document);
+  assert.equal(result.document.document_id, document.document_id);
+  assert.equal(uploadCallCount, 1, "upload executed after reclaiming legacy row");
   assert.equal(store.current()?.status, "COMPLETE");
 }));

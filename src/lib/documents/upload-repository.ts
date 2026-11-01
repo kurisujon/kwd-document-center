@@ -199,8 +199,10 @@ export function createUploadAttemptRepository(supabase: SupabaseClient): UploadA
     },
     async reclaimExpiredUploadingAttempt(attemptId, leaseDurationMs = UPLOAD_LEASE_DURATION_MS) {
       const operationToken = randomUUID();
-      const nowIso = new Date().toISOString();
-      const expiresAt = new Date(Date.now() + leaseDurationMs).toISOString();
+      const now = Date.now();
+      const nowIso = new Date(now).toISOString();
+      const legacyStaleThresholdIso = new Date(now - leaseDurationMs).toISOString();
+      const expiresAt = new Date(now + leaseDurationMs).toISOString();
       const { data, error } = await supabase
         .from("upload_attempts")
         .update({
@@ -212,7 +214,7 @@ export function createUploadAttemptRepository(supabase: SupabaseClient): UploadA
         .eq("id", attemptId)
         .eq("status", "UPLOADING")
         .not("drive_file_id", "is", null)
-        .lte("reservation_expires_at", nowIso)
+        .or(`reservation_expires_at.lte.${nowIso},and(reservation_expires_at.is.null,updated_at.lte.${legacyStaleThresholdIso})`)
         .select("id");
       if (error) throw new Error("Unable to reclaim expired uploading attempt.");
       return { reclaimed: Boolean(data?.length), operationToken: data?.length ? operationToken : null };
