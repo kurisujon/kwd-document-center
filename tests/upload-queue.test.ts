@@ -234,7 +234,7 @@ test("upload-queue: expired Google token classifies isGoogleAuthExpired and show
           "Google Drive authorization has expired. Please re-authorize Google Drive in Admin settings.",
           502,
           "DRIVE_AUTH_EXPIRED",
-          "/admin/drive-setup/authorize",
+          "/api/admin/drive-setup/authorize",
         ),
       ),
     };
@@ -253,7 +253,7 @@ test("upload-queue: expired Google token classifies isGoogleAuthExpired and show
   assert.equal(item.state, "FAILED");
   assert.equal(item.isGoogleAuthExpired, true);
   assert.equal(item.errorCode, "DRIVE_AUTH_EXPIRED");
-  assert.equal(item.actionUrl, "/admin/drive-setup/authorize");
+  assert.equal(item.actionUrl, "/api/admin/drive-setup/authorize");
   assert.match(item.error ?? "", /re-authorize.*Admin/i);
 
   // Verify no secrets or sensitive tokens are present in item state or error string

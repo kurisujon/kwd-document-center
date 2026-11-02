@@ -125,7 +125,7 @@ test("upload-toast-ui: shows admin-only re-authorize link for admins when Google
 
   const adminLink = adminUi.getByRole("link", { name: "Re-authorize Drive" });
   assert.ok(adminLink);
-  assert.equal(adminLink.getAttribute("href"), "/admin/drive-setup/authorize");
+  assert.equal(adminLink.getAttribute("href"), "/api/admin/drive-setup/authorize");
   adminUi.unmount();
 
   // Render with STAFF user (non-admin)

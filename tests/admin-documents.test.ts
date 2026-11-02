@@ -644,7 +644,7 @@ test("expired Google token shows admin-only guidance without exposing token or s
       assert.ok(error instanceof DocumentUploadError);
       assert.equal(error.code, "DRIVE_AUTH_EXPIRED");
       assert.equal(error.status, 502);
-      assert.equal(error.actionUrl, "/admin/drive-setup/authorize");
+      assert.equal(error.actionUrl, "/api/admin/drive-setup/authorize");
       assert.match(error.message, /re-authorize.*Admin/i);
       // Ensure zero token, client ID, or secret details are leaked
       assert.doesNotMatch(error.message, /token|refresh|secret|client_id|oauth/i);
@@ -677,7 +677,7 @@ test("expired Google token shows admin-only guidance without exposing token or s
   assert.equal(adminResponse.status, 502);
   const adminBody = await adminResponse.json() as { error: { code: string; message: string; actionUrl?: string } };
   assert.equal(adminBody.error.code, "DRIVE_AUTH_EXPIRED");
-  assert.equal(adminBody.error.actionUrl, "/admin/drive-setup/authorize");
+  assert.equal(adminBody.error.actionUrl, "/api/admin/drive-setup/authorize");
 
   const staffHandler = createUploadDocumentHandler({
     getAuthorization: async () => ({ kind: "authorized", user: staff }),

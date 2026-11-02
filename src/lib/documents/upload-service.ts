@@ -301,7 +301,7 @@ export async function uploadAdminDocument(input: {
         const message = isAdmin
           ? "Google Drive authorization has expired. Please re-authorize Google Drive in Admin settings."
           : "Google Drive storage connection has expired. Please contact an administrator.";
-        throw new DocumentUploadError("DRIVE_AUTH_EXPIRED", message, 502, isAdmin ? "/admin/drive-setup/authorize" : undefined);
+        throw new DocumentUploadError("DRIVE_AUTH_EXPIRED", message, 502, isAdmin ? "/api/admin/drive-setup/authorize" : undefined);
       }
       throw new DocumentUploadError("DRIVE_ERROR", "Google Drive upload recovery is pending. Retry this submission with the same idempotency key.", 503);
     }
@@ -407,7 +407,7 @@ export async function uploadFolderDocument(input: {
         const message = isAdmin
           ? "Google Drive authorization has expired. Please re-authorize Google Drive in Admin settings."
           : "Google Drive storage connection has expired. Please contact an administrator.";
-        throw new DocumentUploadError("DRIVE_AUTH_EXPIRED", message, 502, isAdmin ? "/admin/drive-setup/authorize" : undefined);
+        throw new DocumentUploadError("DRIVE_AUTH_EXPIRED", message, 502, isAdmin ? "/api/admin/drive-setup/authorize" : undefined);
       }
       throw new DocumentUploadError("DRIVE_ERROR", "Google Drive upload recovery is pending. Retry this submission with the same idempotency key.", 503);
     }

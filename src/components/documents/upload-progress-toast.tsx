@@ -139,7 +139,7 @@ export function UploadProgressToast() {
           <ul className="upload-toast-list" role="list">
             {items.map((item) => {
               const isDriveAuthExpired = item.errorCode === "DRIVE_AUTH_EXPIRED" || item.isGoogleAuthExpired;
-              const authorizeHref = item.actionUrl ?? (isAdmin ? "/admin/drive-setup/authorize" : undefined);
+              const authorizeHref = item.actionUrl ?? (isAdmin ? "/api/admin/drive-setup/authorize" : undefined);
               const canCancel = item.state === "QUEUED" || item.state === "UPLOADING";
               const canRetry = item.state === "FAILED" || item.state === "CANCELLED";
 

@@ -17,6 +17,7 @@ import {
 import { createDriveAuthorizeHandler, createDriveCallbackHandler } from "../src/lib/google/drive-setup.ts";
 import { DriveServiceError } from "../src/lib/google/drive-types.ts";
 import type { drive_v3 } from "googleapis";
+import nextConfig from "../next.config.ts";
 
 const admin: AuthorizedUser = {
   id: "11111111-1111-4111-8111-111111111111",
@@ -224,3 +225,20 @@ test("Drive setup callback presents the refresh token only in the one-time admin
   const replay = await handler(callbackRequest("code=secret-authorization-code&state=expected"));
   assert.equal(replay.status, 400);
 });
+
+test("admin drive authorize route resolves: nextConfig redirects /admin/drive-setup/authorize to /api/admin/drive-setup/authorize and handler redirects to Google", async () => withDriveEnvAsync(async () => {
+  // 1. Verify next.config.ts redirect mapping exists and resolves the shorter admin link
+  const redirects = await (nextConfig.redirects ? nextConfig.redirects() : []);
+  const mapping = redirects.find((r) => r.source === "/admin/drive-setup/authorize");
+  assert.ok(mapping, "redirect for /admin/drive-setup/authorize must be configured");
+  assert.equal(mapping.destination, "/api/admin/drive-setup/authorize");
+  assert.equal(mapping.permanent, false);
+
+  // 2. Verify target handler at /api/admin/drive-setup/authorize resolves to Google OAuth consent
+  const handler = createDriveAuthorizeHandler({ getAuthorization: async () => authorized });
+  const response = await handler(new NextRequest("http://localhost:3000/api/admin/drive-setup/authorize"));
+  assert.equal(response.status, 307);
+  const location = response.headers.get("location");
+  assert.ok(location);
+  assert.match(location, /^https:\/\/accounts\.google\.com\/o\/oauth2\/v2\/auth/);
+}));
