@@ -31,8 +31,8 @@ function toFolderUploadDocument(document: DocumentRecord): FolderUploadDocumentD
   };
 }
 
-function jsonError(code: string, message: string, status: number, field?: string) {
-  return protectedJson({ error: { code, message, ...(field ? { field } : {}) } }, status);
+function jsonError(code: string, message: string, status: number, field?: string, actionUrl?: string) {
+  return protectedJson({ error: { code, message, ...(field ? { field } : {}), ...(actionUrl ? { actionUrl } : {}) } }, status);
 }
 
 function authorizationError(authorization: Exclude<AuthorizationResult, { kind: "authorized" }>) {
@@ -82,7 +82,7 @@ export function createUploadDocumentHandler(dependencies: {
       if (error instanceof UploadValidationError) return jsonError("VALIDATION_ERROR", error.message, 400, error.field);
       if (error instanceof DocumentUploadError) {
         if (error.status >= 500) logOperationalFailure({ operation: "documents.upload", outcome: "failure", category: error.code, status: error.status });
-        return jsonError(error.code, error.message, error.status);
+        return jsonError(error.code, error.message, error.status, undefined, error.actionUrl);
       }
       logOperationalFailure({ operation: "documents.upload", outcome: "failure", category: "UNEXPECTED_UPLOAD_FAILURE", status: 500 });
       return jsonError("REGISTRY_ERROR", "The document upload could not be completed.", 500);

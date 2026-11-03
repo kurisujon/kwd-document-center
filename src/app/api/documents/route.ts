@@ -11,6 +11,9 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
+// maxDuration must be a literal number for Next.js static AST analysis.
+// Validated against UPLOAD_SERVER_MAX_DURATION_SECONDS in tests/upload-timing.test.ts.
+export const maxDuration = 60;
 
 export const GET = createListDocumentsHandler({
   getAuthorization,

@@ -1,24 +1,27 @@
 import type { AuthorizedUser } from "../auth/types";
 import { DriveConfigurationError, getAdminDriveFolderId } from "./drive-config";
-import type { DriveService } from "../google/drive-types";
+import type { DriveFileMetadata, DriveService } from "../google/drive-types";
 import { DriveServiceError } from "../google/drive-types";
 import { createHash } from "node:crypto";
 import type { FolderUploadAttemptRepository, UploadAttemptRepository } from "./upload-repository";
 import { resolveFolderUploadDestinationContext, type FolderUploadDestinationContext } from "./upload-destination";
 import type { HierarchyFolderRecord } from "./hierarchy-repository";
 import type { UploadAttempt, UploadMetadataSnapshot, UploadResult, ValidatedAdminUpload, ValidatedFolderUpload } from "./upload-types";
+import { UPLOAD_LEASE_DURATION_MS } from "./upload-timing";
 import { logOperationalFailure } from "../observability/log";
 
-export type UploadErrorCode = "VALIDATION_ERROR" | "DRIVE_ERROR" | "REGISTRY_ERROR" | "UPLOAD_IN_PROGRESS" | "DUPLICATE_DOCUMENT";
+export type UploadErrorCode = "VALIDATION_ERROR" | "DRIVE_ERROR" | "DRIVE_AUTH_EXPIRED" | "REGISTRY_ERROR" | "UPLOAD_IN_PROGRESS" | "DUPLICATE_DOCUMENT";
 
 export class DocumentUploadError extends Error {
   readonly code: UploadErrorCode;
   readonly status: number;
+  readonly actionUrl?: string;
 
-  constructor(code: UploadErrorCode, message: string, status: number) {
+  constructor(code: UploadErrorCode, message: string, status: number, actionUrl?: string) {
     super(message);
     this.code = code;
     this.status = status;
+    this.actionUrl = actionUrl;
   }
 }
 
@@ -65,6 +68,7 @@ function sameSnapshot(left: UploadMetadataSnapshot, right: UploadMetadataSnapsho
     && left.file_name === right.file_name
     && left.file_type === right.file_type
     && left.file_size === right.file_size
+    && (!left.file_sha256 || !right.file_sha256 || left.file_sha256 === right.file_sha256)
     && JSON.stringify(left.custom_metadata ?? {}) === JSON.stringify(right.custom_metadata ?? {});
 }
 
@@ -196,7 +200,7 @@ export async function uploadAdminDocument(input: {
     }
     if (!persisted) return uploadAdminDocument(input);
 
-    attempt = { ...attempt, status: "UPLOADING", drive_file_id: driveFileId, operation_token: operationToken, reservation_expires_at: null, safe_error_code: null };
+    attempt = { ...attempt, status: "UPLOADING", drive_file_id: driveFileId, operation_token: operationToken, safe_error_code: null };
   }
 
   if (attempt.status === "FAILED") {
@@ -209,22 +213,75 @@ export async function uploadAdminDocument(input: {
     attempt = { ...attempt, status: "UPLOADING", operation_token: operationToken, safe_error_code: null };
   }
 
+  let isReclaimedUploading = false;
+  if (attempt.status === "UPLOADING" && !operationToken && attempt.drive_file_id) {
+    if (repository.reclaimExpiredUploadingAttempt) {
+      const reclaim = await repository.reclaimExpiredUploadingAttempt(attempt.id, UPLOAD_LEASE_DURATION_MS);
+      if (reclaim.reclaimed && reclaim.operationToken) {
+        operationToken = reclaim.operationToken;
+        attempt = { ...attempt, operation_token: operationToken };
+        isReclaimedUploading = true;
+      }
+    }
+  }
+
   if (attempt.status !== "UPLOADING" || !attempt.drive_file_id || !operationToken) {
     throw new DocumentUploadError("UPLOAD_IN_PROGRESS", "This upload is already being processed. Please retry shortly.", 409);
   }
 
   try {
-    const driveFile = await drive.upload({
-      fileId: attempt.drive_file_id,
-      folderId,
-      name: upload.file.name,
-      mimeType: upload.file.mimeType,
-      bytes: upload.file.bytes,
-      uploadAttemptId: attempt.id,
-    });
+    let driveFile: DriveFileMetadata | null = null;
+
+    // If recovering a crashed UPLOADING attempt that already had a Drive file ID,
+    // check whether the crashed worker already created the file in Google Drive.
+    if (isReclaimedUploading && drive.getMetadata) {
+      try {
+        const existing = await drive.getMetadata(attempt.drive_file_id);
+        if (existing && !existing.trashed && existing.id === attempt.drive_file_id) {
+          const expectedSize = upload.file.bytes.length;
+          const expectedMd5 = createHash("md5").update(upload.file.bytes).digest("hex").toLowerCase();
+          const existingSize = existing.size !== null && existing.size !== undefined && existing.size !== "" ? Number(existing.size) : null;
+          const sizeMatches = existingSize === null || (!Number.isNaN(existingSize) && existingSize === expectedSize);
+          const md5Matches = !existing.md5Checksum || existing.md5Checksum.toLowerCase() === expectedMd5;
+
+          if (!sizeMatches || !md5Matches) {
+            logOperationalFailure({
+              operation: "documents.upload.reclaim.verify",
+              outcome: "failure",
+              category: "DRIVE_INTEGRITY_MISMATCH",
+              status: 500,
+              resourceId: attempt.id,
+            });
+            throw new DocumentUploadError(
+              "DRIVE_ERROR",
+              "The file in Google Drive does not match the uploaded content. Please contact an administrator.",
+              500,
+            );
+          }
+
+          driveFile = existing;
+        }
+      } catch (error) {
+        if (error instanceof DocumentUploadError) throw error;
+        // File does not exist in Drive yet; proceed to upload
+      }
+    }
+
+    if (!driveFile) {
+      driveFile = await drive.upload({
+        fileId: attempt.drive_file_id,
+        folderId,
+        name: upload.file.name,
+        mimeType: upload.file.mimeType,
+        bytes: upload.file.bytes,
+        uploadAttemptId: attempt.id,
+      });
+    }
+
     if (!await repository.markPendingRegistry(attempt.id, driveFile.id, operationToken)) return uploadAdminDocument(input);
     attempt = { ...attempt, status: "PENDING_REGISTRY", drive_file_id: driveFile.id };
   } catch (error) {
+    if (error instanceof DocumentUploadError) throw error;
     if (error instanceof DriveServiceError) {
       if (error.kind !== "AMBIGUOUS") {
         try {
@@ -239,7 +296,14 @@ export async function uploadAdminDocument(input: {
           if (failureError instanceof DocumentUploadError) throw failureError;
         }
       }
-      throw new DocumentUploadError("DRIVE_ERROR", "Google Drive upload recovery is pending. Retry this submission with the same idempotency key.", error.kind === "FORBIDDEN" ? 502 : 503);
+      if (error.kind === "FORBIDDEN") {
+        const isAdmin = input.user.role === "ADMIN";
+        const message = isAdmin
+          ? "Google Drive authorization has expired. Please re-authorize Google Drive in Admin settings."
+          : "Google Drive storage connection has expired. Please contact an administrator.";
+        throw new DocumentUploadError("DRIVE_AUTH_EXPIRED", message, 502, isAdmin ? "/api/admin/drive-setup/authorize" : undefined);
+      }
+      throw new DocumentUploadError("DRIVE_ERROR", "Google Drive upload recovery is pending. Retry this submission with the same idempotency key.", 503);
     }
     logOperationalFailure({ operation: "documents.upload.state", outcome: "failure", category: "UPLOAD_STATE_SAVE_FAILED", status: 500, resourceId: attempt.id });
     throw new DocumentUploadError("REGISTRY_ERROR", "The file upload state could not be saved. Please contact an administrator before retrying.", 500);
@@ -327,6 +391,7 @@ export async function uploadFolderDocument(input: {
     if (!await input.attempts.markPendingRegistry(attempt.id, driveFile.id, operationToken)) return uploadFolderDocument(input);
     attempt = { ...attempt, status: "PENDING_REGISTRY", drive_file_id: driveFile.id };
   } catch (error) {
+    if (error instanceof DocumentUploadError) throw error;
     if (error instanceof DriveServiceError) {
       if (error.kind !== "AMBIGUOUS") {
         const failure = await input.attempts.markFailed(attempt.id, attempt.drive_file_id!, operationToken, "DRIVE_ERROR");
@@ -337,7 +402,14 @@ export async function uploadFolderDocument(input: {
           return { document, created: false };
         }
       }
-      throw new DocumentUploadError("DRIVE_ERROR", "Google Drive upload recovery is pending. Retry this submission with the same idempotency key.", error.kind === "FORBIDDEN" ? 502 : 503);
+      if (error.kind === "FORBIDDEN") {
+        const isAdmin = input.user.role === "ADMIN";
+        const message = isAdmin
+          ? "Google Drive authorization has expired. Please re-authorize Google Drive in Admin settings."
+          : "Google Drive storage connection has expired. Please contact an administrator.";
+        throw new DocumentUploadError("DRIVE_AUTH_EXPIRED", message, 502, isAdmin ? "/api/admin/drive-setup/authorize" : undefined);
+      }
+      throw new DocumentUploadError("DRIVE_ERROR", "Google Drive upload recovery is pending. Retry this submission with the same idempotency key.", 503);
     }
     throw new DocumentUploadError("REGISTRY_ERROR", "The file upload state could not be saved. Please contact an administrator before retrying.", 500);
   }

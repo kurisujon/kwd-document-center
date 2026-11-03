@@ -28,6 +28,8 @@ function normalizeMetadata(file: drive_v3.Schema$File): DriveFileMetadata {
     mimeType: file.mimeType,
     trashed: file.trashed === true,
     webViewLink: file.webViewLink || `https://drive.google.com/file/d/${encodeURIComponent(file.id)}/view`,
+    size: file.size ? Number(file.size) : null,
+    md5Checksum: file.md5Checksum ?? null,
   };
 }
 
@@ -54,7 +56,7 @@ export function createDriveService(): DriveService & DriveDeletionService {
     return withTransientRetry(async () => {
       const response = await client().files.get({
         fileId,
-        fields: "id,name,mimeType,trashed,webViewLink,size",
+        fields: "id,name,mimeType,trashed,webViewLink,size,md5Checksum",
         supportsAllDrives: true,
       });
       const metadata = normalizeMetadata(response.data);
@@ -98,7 +100,7 @@ export function createDriveService(): DriveService & DriveDeletionService {
       },
       media: { mimeType: input.mimeType, body: Readable.from([Buffer.from(input.bytes)]) },
       uploadType: "resumable",
-      fields: "id,name,mimeType,trashed,webViewLink",
+      fields: "id,name,mimeType,trashed,webViewLink,size,md5Checksum",
       supportsAllDrives: true,
     });
     return normalizeMetadata(response.data);

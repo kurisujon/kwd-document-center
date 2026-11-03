@@ -12,6 +12,8 @@ export function canSelectBatchFiles(existingCount: number, incomingCount: number
 
 export type BatchUploadStatus = "QUEUED" | "NEEDS_METADATA" | "READY" | "UPLOADING" | "IN_PROGRESS" | "UPLOADED" | "FAILED" | "INVALID_FILE" | "CANCELLED";
 
+export type BatchUploadMetadata = AdminDocumentMetadata;
+
 export type BatchUploadItem = {
   localId: string;
   file: File;
@@ -97,9 +99,59 @@ export function refreshBatchItem(item: BatchUploadItem, maxBytes = 4 * 1024 * 10
   return { ...item, status: error ? "INVALID_FILE" : deriveBatchItemStatus(item, maxBytes), ...(error ? { error } : { error: undefined }) };
 }
 
+export function detectBatchDuplicates(items: readonly BatchUploadItem[]): BatchUploadItem[] {
+  const seen = new Map<string, string[]>();
+  for (const item of items) {
+    const key = `${item.file.name.toLowerCase()}:${item.file.size}`;
+    const list = seen.get(key) ?? [];
+    list.push(item.localId);
+    seen.set(key, list);
+  }
+  return items.map((item) => {
+    if (!isBatchItemEditable(item)) return item;
+    const key = `${item.file.name.toLowerCase()}:${item.file.size}`;
+    const ids = seen.get(key) ?? [];
+    if (ids.length > 1 && ids[0] !== item.localId) {
+      return {
+        ...item,
+        status: "INVALID_FILE",
+        error: "Duplicate file in batch.",
+      };
+    }
+    return item;
+  });
+}
+
+export function stageDroppedBatchFiles(
+  existingItems: readonly BatchUploadItem[],
+  incomingFiles: readonly File[],
+  defaults: BatchUploadDefaults,
+  maxBytes = 4 * 1024 * 1024,
+  createItem = createBatchUploadItem
+): { items: BatchUploadItem[]; message?: string } {
+  if (!incomingFiles.length) return { items: [...existingItems] };
+  const availableSlots = Math.max(0, maximumBatchUploadFiles - existingItems.length);
+  if (availableSlots === 0) {
+    return {
+      items: [...existingItems],
+      message: `Batch limit reached. Maximum ${maximumBatchUploadFiles} files allowed.`,
+    };
+  }
+  const accepted = incomingFiles.slice(0, availableSlots);
+  const skippedCount = incomingFiles.length - accepted.length;
+  const newItems = accepted.map((file) => createItem(file, defaults, crypto.randomUUID(), maxBytes));
+  const combined = detectBatchDuplicates([...existingItems, ...newItems]);
+  let message: string | undefined;
+  if (skippedCount > 0) {
+    message = `Added ${accepted.length} file${accepted.length === 1 ? "" : "s"}. ${skippedCount} file${skippedCount === 1 ? "" : "s"} were skipped because batches are limited to ${maximumBatchUploadFiles}.`;
+  }
+  return { items: combined, message };
+}
+
 export function appendBatchFiles(items: readonly BatchUploadItem[], files: readonly File[], defaults: BatchUploadDefaults, maxBytes = 4 * 1024 * 1024, createItem = createBatchUploadItem): { items: BatchUploadItem[]; error?: string } {
   if (!canSelectBatchFiles(items.length, files.length)) return { items: [...items], error: `Select no more than ${maximumBatchUploadFiles} files in one batch.` };
-  return { items: [...items, ...files.map((file) => createItem(file, defaults, crypto.randomUUID(), maxBytes))] };
+  const combined = detectBatchDuplicates([...items, ...files.map((file) => createItem(file, defaults, crypto.randomUUID(), maxBytes))]);
+  return { items: combined };
 }
 
 export function updateBatchItem(items: readonly BatchUploadItem[], localId: string, change: (item: BatchUploadItem) => BatchUploadItem, maxBytes = 4 * 1024 * 1024): BatchUploadItem[] {
